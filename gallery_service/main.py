@@ -42,3 +42,10 @@ class Credenciais(BaseModel):
 
 def hash_senha(senha: str) -> str:
     return hashlib.sha256(senha.encode()).hexdigest()
+
+def usuario_logado(authorization: str = Header(default="")) -> str:
+    """Dependência: devolve o usuário do token Bearer ou responde 401."""
+    token = authorization.removeprefix("Bearer ").strip()
+    if token not in tokens:
+        raise HTTPException(401, "Não autenticado")
+    return tokens[token]
