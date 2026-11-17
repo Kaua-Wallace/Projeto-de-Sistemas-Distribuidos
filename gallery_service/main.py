@@ -28,3 +28,17 @@ TAMANHO_MAX = 5 * 1024 * 1024 # 5 MB
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "gallery"}
+
+# Estado central (em memória)
+
+usuarios = {} # username -> hash da senha
+tokens = {} # token -> username
+imagens = {} # id -> metadados da imagem (ver rota de upload)
+historico = [] # uploads: {usuario, image_id, nome, data}
+
+class Credenciais(BaseModel):
+    username: str
+    password: str
+
+def hash_senha(senha: str) -> str:
+    return hashlib.sha256(senha.encode()).hexdigest()
