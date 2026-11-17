@@ -61,3 +61,10 @@ def cadastrar(c: Credenciais):
     usuarios[c.username] = hash_senha(c.password)
     return {"username": c.username}
 
+@app.post("/auth/login")
+def login(c: Credenciais):
+    if usuarios.get(c.username) != hash_senha(c.password):
+        raise HTTPException(401, "Credenciais inválidas")
+    token = secrets.token_urlsafe(24)
+    tokens[token] = c.username
+    return {"token": token}
