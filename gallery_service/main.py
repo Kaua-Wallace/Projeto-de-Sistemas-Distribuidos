@@ -49,3 +49,15 @@ def usuario_logado(authorization: str = Header(default="")) -> str:
     if token not in tokens:
         raise HTTPException(401, "Não autenticado")
     return tokens[token]
+
+# Autenticação
+
+@app.post("/auth/register", status_code=201)
+def cadastrar(c: Credenciais):
+    if not (3 <= len(c.username) <= 30) or len(c.password) < 6:
+        raise HTTPException(422, "username: 3-30 caracteres; password: mínimo 6")
+    if c.username in usuarios:
+        raise HTTPException(409, "Usuário já existe")
+    usuarios[c.username] = hash_senha(c.password)
+    return {"username": c.username}
+
