@@ -127,3 +127,12 @@ async def upload(file: UploadFile = File(...), usuario: str = Depends(usuario_lo
 def publica(img: dict) -> dict:
     """Remove os caminhos internos do disco antes de responder ao cliente."""
     return {k: v for k, v in img.items() if not k.startswith("caminho")}
+
+
+@app.get("/images")
+def listar(_: str = Depends(usuario_logado)):
+    return [
+        {"id": i["id"], "autor": i["autor"], "data": i["data"],
+         "url_miniatura": i["url_miniatura"]}
+        for i in imagens.values()
+    ]
