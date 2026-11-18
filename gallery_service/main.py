@@ -68,3 +68,95 @@ def login(c: Credenciais):
     token = secrets.token_urlsafe(24)
     tokens[token] = c.username
     return {"token": token}
+
+
+# Imagens
+
+@app.post("/images", status_code=201)
+async def upload(file: UploadFile = File(...), usuario: str = Depends(usuario_logado)):
+    if file.content_type not in TIPOS_ACEITOS:
+        raise HTTPException(415, f"Tipo não aceito. Use: {list(TIPOS_ACEITOS)}")
+    dados = await file.read()
+    if not dados:
+        raise HTTPException(400, "Arquivo vazio")
+    if len(dados) > TAMANHO_MAX:
+        raise HTTPException(413, "Arquivo maior que 5 MB")
+
+    # chama o Serviço de Processamento para gerar a miniatura
+    try:
+        r = httpx.post(
+            f"{PROCESSING_URL}/internal/thumbnail",
+            files={"file": (file.filename, dados, file.content_type)},
+            timeout=10,
+        )
+    except httpx.HTTPError:
+        raise HTTPException(503, "Serviço de Processamento indisponível")
+    if r.status_code != 200:
+        codigo = r.status_code if r.status_code in (415, 422) else 502
+        raise HTTPException(codigo, "Falha ao gerar miniatura")
+
+    # armazenamento: storage/<originals|thumbnails>/<usuario>/<id>.<ext>
+    img_id = str(uuid.uuid4())
+    pasta_o = STORAGE / "originals" / usuario
+    pasta_t = STORAGE / "thumbnails" / usuario
+    pasta_o.mkdir(parents=True, exist_ok=True)
+    pasta_t.mkdir(parents=True, exist_ok=True)
+    caminho_o = pasta_o / f"{img_id}.{TIPOS_ACEITOS[file.content_type]}"
+    caminho_t = pasta_t / f"{img_id}.jpg"
+    caminho_o.write_bytes(dados)
+    caminho_t.write_bytes(r.content)
+
+    # metadados (dicionário de imagens) e histórico de uploads
+    agora = datetime.now().isoformat(timespec="seconds")
+    nome = os.path.basename(file.filename or img_id)
+    imagens[img_id] = {
+        "id": img_id,
+        "autor": usuario,
+        "data": agora,
+        "nome": nome,
+        "tipo": file.content_type,
+        "tamanho": len(dados),
+        "caminho_original": str(caminho_o),
+        "caminho_miniatura": str(caminho_t),
+        "url_miniatura": f"/images/{img_id}/thumbnail",
+    }
+    historico.append({"usuario": usuario, "image_id": img_id, "nome": nome, "data": agora})
+    return publica(imagens[img_id])
+
+
+def publica(img: dict) -> dict:
+    """Remove os caminhos internos do disco antes de responder ao cliente."""
+    return {k: v for k, v in img.items() if not k.startswith("caminho")}
+
+
+@app.get("/images")
+def listar(_: str = Depends(usuario_logado)):
+    return [
+        {"id": i["id"], "autor": i["autor"], "data": i["data"],
+         "url_miniatura": i["url_miniatura"]}
+        for i in imagens.values()
+    ]
+
+
+def buscar(img_id: str) -> dict:
+    if img_id not in imagens:
+        raise HTTPException(404, "Imagem não encontrada")
+    return imagens[img_id]
+
+
+@app.get("/images/{img_id}/thumbnail")
+def previa(img_id: str, _: str = Depends(usuario_logado)):
+    return FileResponse(buscar(img_id)["caminho_miniatura"], media_type="image/jpeg")
+
+
+@app.get("/images/{img_id}/download")
+def download(img_id: str, _: str = Depends(usuario_logado)):
+    img = buscar(img_id)
+    return FileResponse(
+        img["caminho_original"], media_type=img["tipo"], filename=img["nome"]
+    )
+
+
+@app.get("/history")
+def meu_historico(usuario: str = Depends(usuario_logado)):
+    return [h for h in historico if h["usuario"] == usuario]
