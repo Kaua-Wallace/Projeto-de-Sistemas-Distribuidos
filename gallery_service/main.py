@@ -94,4 +94,36 @@ async def upload(file: UploadFile = File(...), usuario: str = Depends(usuario_lo
     if r.status_code != 200:
         codigo = r.status_code if r.status_code in (415, 422) else 502
         raise HTTPException(codigo, "Falha ao gerar miniatura")
-    return {"nome": file.filename, "tipo": file.content_type, "tamanho": len(dados)}
+
+    # armazenamento: storage/<originals|thumbnails>/<usuario>/<id>.<ext>
+    img_id = str(uuid.uuid4())
+    pasta_o = STORAGE / "originals" / usuario
+    pasta_t = STORAGE / "thumbnails" / usuario
+    pasta_o.mkdir(parents=True, exist_ok=True)
+    pasta_t.mkdir(parents=True, exist_ok=True)
+    caminho_o = pasta_o / f"{img_id}.{TIPOS_ACEITOS[file.content_type]}"
+    caminho_t = pasta_t / f"{img_id}.jpg"
+    caminho_o.write_bytes(dados)
+    caminho_t.write_bytes(r.content)
+
+    # metadados (dicionário de imagens) e histórico de uploads
+    agora = datetime.now().isoformat(timespec="seconds")
+    nome = os.path.basename(file.filename or img_id)
+    imagens[img_id] = {
+        "id": img_id,
+        "autor": usuario,
+        "data": agora,
+        "nome": nome,
+        "tipo": file.content_type,
+        "tamanho": len(dados),
+        "caminho_original": str(caminho_o),
+        "caminho_miniatura": str(caminho_t),
+        "url_miniatura": f"/images/{img_id}/thumbnail",
+    }
+    historico.append({"usuario": usuario, "image_id": img_id, "nome": nome, "data": agora})
+    return publica(imagens[img_id])
+
+
+def publica(img: dict) -> dict:
+    """Remove os caminhos internos do disco antes de responder ao cliente."""
+    return {k: v for k, v in img.items() if not k.startswith("caminho")}
