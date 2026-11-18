@@ -136,3 +136,22 @@ def listar(_: str = Depends(usuario_logado)):
          "url_miniatura": i["url_miniatura"]}
         for i in imagens.values()
     ]
+
+
+def buscar(img_id: str) -> dict:
+    if img_id not in imagens:
+        raise HTTPException(404, "Imagem não encontrada")
+    return imagens[img_id]
+
+
+@app.get("/images/{img_id}/thumbnail")
+def previa(img_id: str, _: str = Depends(usuario_logado)):
+    return FileResponse(buscar(img_id)["caminho_miniatura"], media_type="image/jpeg")
+
+
+@app.get("/images/{img_id}/download")
+def download(img_id: str, _: str = Depends(usuario_logado)):
+    img = buscar(img_id)
+    return FileResponse(
+        img["caminho_original"], media_type=img["tipo"], filename=img["nome"]
+    )
