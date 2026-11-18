@@ -68,3 +68,17 @@ def login(c: Credenciais):
     token = secrets.token_urlsafe(24)
     tokens[token] = c.username
     return {"token": token}
+
+
+# Imagens
+
+@app.post("/images", status_code=201)
+async def upload(file: UploadFile = File(...), usuario: str = Depends(usuario_logado)):
+    if file.content_type not in TIPOS_ACEITOS:
+        raise HTTPException(415, f"Tipo não aceito. Use: {list(TIPOS_ACEITOS)}")
+    dados = await file.read()
+    if not dados:
+        raise HTTPException(400, "Arquivo vazio")
+    if len(dados) > TAMANHO_MAX:
+        raise HTTPException(413, "Arquivo maior que 5 MB")
+    return {"nome": file.filename, "tipo": file.content_type, "tamanho": len(dados)}
