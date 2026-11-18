@@ -155,3 +155,8 @@ def download(img_id: str, _: str = Depends(usuario_logado)):
     return FileResponse(
         img["caminho_original"], media_type=img["tipo"], filename=img["nome"]
     )
+
+
+@app.get("/history")
+def meu_historico(usuario: str = Depends(usuario_logado)):
+    return [h for h in historico if h["usuario"] == usuario]
