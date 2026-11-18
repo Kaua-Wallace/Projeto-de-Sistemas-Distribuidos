@@ -81,4 +81,17 @@ async def upload(file: UploadFile = File(...), usuario: str = Depends(usuario_lo
         raise HTTPException(400, "Arquivo vazio")
     if len(dados) > TAMANHO_MAX:
         raise HTTPException(413, "Arquivo maior que 5 MB")
+
+    # chama o Serviço de Processamento para gerar a miniatura
+    try:
+        r = httpx.post(
+            f"{PROCESSING_URL}/internal/thumbnail",
+            files={"file": (file.filename, dados, file.content_type)},
+            timeout=10,
+        )
+    except httpx.HTTPError:
+        raise HTTPException(503, "Serviço de Processamento indisponível")
+    if r.status_code != 200:
+        codigo = r.status_code if r.status_code in (415, 422) else 502
+        raise HTTPException(codigo, "Falha ao gerar miniatura")
     return {"nome": file.filename, "tipo": file.content_type, "tamanho": len(dados)}
