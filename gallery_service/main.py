@@ -3,6 +3,7 @@
 import hashlib
 import os
 import secrets
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -11,8 +12,16 @@ import httpx
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from common import log_evento, middleware_logs
 
 app = FastAPI(title="Serviço de Galeria")
+
+
+@app.middleware("http")
+async def logs_http(request, call_next):
+    return await middleware_logs(
+        request, call_next, servico="gallery", resolver_usuario=usuario_do_token
+    )
 
 PROCESSING_URL = os.getenv("PROCESSING_URL", "http://localhost:8002")
 RAIZ = Path(__file__).resolve().parents[1]
@@ -43,12 +52,18 @@ class Credenciais(BaseModel):
 def hash_senha(senha: str) -> str:
     return hashlib.sha256(senha.encode()).hexdigest()
 
+
+def usuario_do_token(token: str) -> str | None:
+    """Resolve um token de sessão para o nome de usuário, se ainda válido."""
+    return tokens.get(token)
+
 def usuario_logado(authorization: str = Header(default="")) -> str:
     """Dependência: devolve o usuário do token Bearer ou responde 401."""
     token = authorization.removeprefix("Bearer ").strip()
-    if token not in tokens:
+    usuario = usuario_do_token(token)
+    if usuario is None:
         raise HTTPException(401, "Não autenticado")
-    return tokens[token]
+    return usuario
 
 # Autenticação
 
@@ -64,6 +79,7 @@ def cadastrar(c: Credenciais):
 @app.post("/auth/login")
 def login(c: Credenciais):
     if usuarios.get(c.username) != hash_senha(c.password):
+        log_evento("login_falhou", servico="gallery", usuario=c.username)
         raise HTTPException(401, "Credenciais inválidas")
     token = secrets.token_urlsafe(24)
     tokens[token] = c.username
@@ -83,6 +99,7 @@ async def upload(file: UploadFile = File(...), usuario: str = Depends(usuario_lo
         raise HTTPException(413, "Arquivo maior que 5 MB")
 
     # chama o Serviço de Processamento para gerar a miniatura
+    inicio_processamento = time.perf_counter()
     try:
         r = httpx.post(
             f"{PROCESSING_URL}/internal/thumbnail",
@@ -90,8 +107,18 @@ async def upload(file: UploadFile = File(...), usuario: str = Depends(usuario_lo
             timeout=10,
         )
     except httpx.HTTPError:
+        log_evento(
+            "chamada_processamento", servico="gallery", status=None,
+            duracao_ms=round((time.perf_counter() - inicio_processamento) * 1000, 2),
+        )
+        log_evento("falha_miniatura", servico="gallery", usuario=usuario, motivo="indisponivel")
         raise HTTPException(503, "Serviço de Processamento indisponível")
+    log_evento(
+        "chamada_processamento", servico="gallery", status=r.status_code,
+        duracao_ms=round((time.perf_counter() - inicio_processamento) * 1000, 2),
+    )
     if r.status_code != 200:
+        log_evento("falha_miniatura", servico="gallery", usuario=usuario, status=r.status_code)
         codigo = r.status_code if r.status_code in (415, 422) else 502
         raise HTTPException(codigo, "Falha ao gerar miniatura")
 
@@ -121,6 +148,7 @@ async def upload(file: UploadFile = File(...), usuario: str = Depends(usuario_lo
         "url_miniatura": f"/images/{img_id}/thumbnail",
     }
     historico.append({"usuario": usuario, "image_id": img_id, "nome": nome, "data": agora})
+    log_evento("upload_concluido", servico="gallery", usuario=usuario, id=img_id, tamanho=len(dados))
     return publica(imagens[img_id])
 
 

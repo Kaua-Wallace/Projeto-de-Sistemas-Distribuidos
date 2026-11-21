@@ -4,8 +4,14 @@ import io
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import Response
 from PIL import Image, UnidentifiedImageError
+from common import log_evento, middleware_logs
 
 app = FastAPI(title="Serviço de Processamento")
+
+
+@app.middleware("http")
+async def logs_http(request, call_next):
+    return await middleware_logs(request, call_next, servico="processing")
 
 TIPOS_ACEITOS = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 TAMANHO_MAX = 5 * 1024 * 1024  # 5 MB
@@ -19,6 +25,7 @@ def health():
 
 @app.post("/internal/thumbnail")
 async def gerar_thumbnail(file: UploadFile = File(...)):
+    log_evento("thumbnail_entrada", servico="processing", arquivo=file.filename)
     if file.content_type not in TIPOS_ACEITOS:
         raise HTTPException(415, "Tipo de imagem não aceito")
     dados = await file.read()
@@ -33,4 +40,6 @@ async def gerar_thumbnail(file: UploadFile = File(...)):
     img.thumbnail((LADO_THUMB, LADO_THUMB))
     saida = io.BytesIO()
     img.save(saida, "JPEG")
-    return Response(saida.getvalue(), media_type="image/jpeg")
+    resultado = saida.getvalue()
+    log_evento("thumbnail_resultado", servico="processing", status=200, tamanho=len(resultado))
+    return Response(resultado, media_type="image/jpeg")
