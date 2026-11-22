@@ -1,6 +1,6 @@
 # Contrato da API REST
 
-Rotas protegidas usam o header `Authorization: Bearer <token>`.
+Rotas protegidas usam o header `Authorization: Bearer <token>`. Sem token, ou com token inválido, a resposta é `401`.
 
 ## Galeria — http://localhost:8001
 
@@ -23,11 +23,12 @@ curl -X POST localhost:8001/images -H "Authorization: Bearer $TOKEN" -F "file=@f
 {"id": "32fe5d7c-...", "autor": "ana", "data": "2026-11-17T01:50:00", "nome": "foto.png",
  "tipo": "image/png", "tamanho": 1949, "url_miniatura": "/images/32fe5d7c-.../thumbnail"}
 ```
-`400` vazio · `401` sem token · `413` maior que 5 MB · `415` tipo inválido · `422` sem arquivo ·
+`400` vazio · `401` sem token · `413` maior que 5 MB · `415` tipo inválido · `422` sem arquivo ou
+imagem corrompida (repassado do Processamento) · `502` falha inesperada no Processamento ·
 `503` Processamento indisponível
 
 ### GET /images
-`200`:
+Lista as imagens de todos os usuários. `200`:
 ```json
 [{"id": "32fe5d7c-...", "autor": "ana", "data": "2026-11-17T01:50:00",
   "url_miniatura": "/images/32fe5d7c-.../thumbnail"}]
@@ -35,16 +36,18 @@ curl -X POST localhost:8001/images -H "Authorization: Bearer $TOKEN" -F "file=@f
 `401` sem token
 
 ### GET /images/{id}/thumbnail
-`200` imagem `image/jpeg` · `401` · `404` imagem não existe
+`200` imagem `image/jpeg` · `401` · `404` imagem não existe ou arquivo não está mais no disco
 
 ### GET /images/{id}/download
-`200` arquivo original · `401` · `404`
+`200` arquivo original, com o nome enviado no `Content-Disposition` · `401` · `404` imagem não existe ou
+arquivo não está mais no disco
 
 ### GET /history
-`200`:
+Só os uploads do usuário logado. `200`:
 ```json
 [{"usuario": "ana", "image_id": "32fe5d7c-...", "nome": "foto.png", "data": "2026-11-17T01:50:00"}]
 ```
+`401` sem token
 
 ## Processamento — http://localhost:8002 (interna)
 
