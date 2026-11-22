@@ -15,20 +15,37 @@ from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from common import log_evento, middleware_logs
+from contextlib import asynccontextmanager
 
-app = FastAPI(title="Serviço de Galeria")
+PROCESSING_URL = os.getenv(
+    "PROCESSING_URL",
+    "http://localhost:8002"
+).rstrip("/")
+PROCESSING_TIMEOUT_SECONDS = float(
+    os.getenv("PROCESSING_TIMEOUT_SECONDS", "10")
+)
+RAIZ = Path(__file__).resolve().parents[1]
+STORAGE = Path(
+    os.getenv("STORAGE_ROOT", RAIZ / "storage")
+)
 
-
-@app.middleware("http")
-async def logs_http(request, call_next):
-    return await middleware_logs(
-        request, call_next, servico="gallery", resolver_usuario=usuario_do_token
+def criar_cliente_processamento():
+    """
+    Cria o cliente HTTP assíncrono que será reutilizado
+    durante toda a execução
+    """
+    return httpx.AsyncClient(
+        timeout=PROCESSING_TIMEOUT_SECONDS
     )
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.processing_client = criar_cliente_processamento()
+    try:
+        yield
+    finally:
+        await app.state.processing_client.aclose()
 
-PROCESSING_URL = os.getenv("PROCESSING_URL", "http://localhost:8002")
-RAIZ = Path(__file__).resolve().parents[1]
-STORAGE = Path(os.getenv("STORAGE_ROOT", RAIZ / "storage"))
 TIPOS_ACEITOS = {
     "image/jpeg": "jpg",
     "image/png": "png",
@@ -37,10 +54,20 @@ TIPOS_ACEITOS = {
 }
 TAMANHO_MAX = 5 * 1024 * 1024  # 5 MB
 
+app = FastAPI(
+    title="Serviço de Galeria",
+    lifespan=lifespan
+)
+
+@app.middleware("http")
+async def logs_http(request, call_next):
+    return await middleware_logs(
+        request, call_next, servico="gallery", resolver_usuario=usuario_do_token
+    )
+
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "gallery"}
-
 
 # Estado central (em memória)
 
@@ -118,53 +145,124 @@ def login(c: Credenciais):
 # Imagens
 
 @app.post("/images", status_code=201)
-async def upload(file: UploadFile = File(...), usuario: str = Depends(usuario_logado)):
+async def upload(
+    file: UploadFile = File(...),
+    usuario: str = Depends(usuario_logado)
+):
+
+    # Validação do tipo de arquivo
+    
     if file.content_type not in TIPOS_ACEITOS:
-        raise HTTPException(415, f"Tipo não aceito. Use: {list(TIPOS_ACEITOS)}")
+        raise HTTPException(
+            415,
+            f"Tipo não aceito. Use: {list(TIPOS_ACEITOS)}"
+        )
+
+    # Leitura assíncrona do arquivo
+
     dados = await file.read()
+
     if not dados:
         raise HTTPException(400, "Arquivo vazio")
+
     if len(dados) > TAMANHO_MAX:
         raise HTTPException(413, "Arquivo maior que 5 MB")
 
-    # chama o Serviço de Processamento para gerar a miniatura
-    inicio_processamento = time.perf_counter()
-    try:
-        r = httpx.post(
-            f"{PROCESSING_URL}/internal/thumbnail",
-            files={"file": (file.filename, dados, file.content_type)},
-            timeout=10,
-        )
-    except httpx.HTTPError:
-        log_evento(
-            "chamada_processamento", servico="gallery", status=None,
-            duracao_ms=round((time.perf_counter() - inicio_processamento) * 1000, 2),
-        )
-        log_evento("falha_miniatura", servico="gallery", usuario=usuario, motivo="indisponivel")
-        raise HTTPException(503, "Serviço de Processamento indisponível")
-    log_evento(
-        "chamada_processamento", servico="gallery", status=r.status_code,
-        duracao_ms=round((time.perf_counter() - inicio_processamento) * 1000, 2),
-    )
-    if r.status_code != 200:
-        log_evento("falha_miniatura", servico="gallery", usuario=usuario, status=r.status_code)
-        codigo = r.status_code if r.status_code in (415, 422) else 502
-        raise HTTPException(codigo, "Falha ao gerar miniatura")
+    # Chamada assíncrona ao Serviço de Processamento
 
-    # armazenamento: storage/<originals|thumbnails>/<usuario>/<id>.<ext>
+    inicio_processamento = time.perf_counter()
+
+    try:
+
+        r = await app.state.processing_client.post(
+            f"{PROCESSING_URL}/internal/thumbnail",
+            files={
+                "file": (
+                    file.filename,
+                    dados,
+                    file.content_type
+                )
+            }
+        )
+
+    except httpx.RequestError:
+
+        log_evento(
+            "chamada_processamento",
+            servico="gallery",
+            status=None,
+            duracao_ms=round(
+                (time.perf_counter() - inicio_processamento) * 1000,
+                2
+            )
+        )
+
+        log_evento(
+            "falha_miniatura",
+            servico="gallery",
+            usuario=usuario,
+            motivo="indisponivel"
+        )
+
+        raise HTTPException(
+            503,
+            "Serviço de Processamento indisponível"
+        )
+
+    log_evento(
+        "chamada_processamento",
+        servico="gallery",
+        status=r.status_code,
+        duracao_ms=round(
+            (time.perf_counter() - inicio_processamento) * 1000,
+            2
+        )
+    )
+
+    # Tratamento dos erros retornados pelo Processamento
+
+    if r.status_code != 200:
+
+        log_evento(
+            "falha_miniatura",
+            servico="gallery",
+            usuario=usuario,
+            status=r.status_code
+        )
+
+        codigo = (
+            r.status_code
+            if r.status_code in (415, 422)
+            else 502
+        )
+
+        raise HTTPException(
+            codigo,
+            "Falha ao gerar miniatura"
+        )
+
+    # Armazenamento dos arquivos
+
     img_id = str(uuid.uuid4())
+
     pasta_o = STORAGE / "originals" / usuario
     pasta_t = STORAGE / "thumbnails" / usuario
+
     pasta_o.mkdir(parents=True, exist_ok=True)
     pasta_t.mkdir(parents=True, exist_ok=True)
+
     caminho_o = pasta_o / f"{img_id}.{TIPOS_ACEITOS[file.content_type]}"
     caminho_t = pasta_t / f"{img_id}.jpg"
+
     caminho_o.write_bytes(dados)
     caminho_t.write_bytes(r.content)
 
-    # metadados (dicionário de imagens) e histórico de uploads
+    # Registro dos metadados
+
     agora = datetime.now().isoformat(timespec="seconds")
+
     nome = os.path.basename(file.filename or img_id)
+
     imagens[img_id] = {
         "id": img_id,
         "autor": usuario,
@@ -176,10 +274,23 @@ async def upload(file: UploadFile = File(...), usuario: str = Depends(usuario_lo
         "caminho_miniatura": str(caminho_t),
         "url_miniatura": f"/images/{img_id}/thumbnail",
     }
-    historico.append({"usuario": usuario, "image_id": img_id, "nome": nome, "data": agora})
-    log_evento("upload_concluido", servico="gallery", usuario=usuario, id=img_id, tamanho=len(dados))
-    return publica(imagens[img_id])
 
+    historico.append({
+        "usuario": usuario,
+        "image_id": img_id,
+        "nome": nome,
+        "data": agora
+    })
+
+    log_evento(
+        "upload_concluido",
+        servico="gallery",
+        usuario=usuario,
+        id=img_id,
+        tamanho=len(dados)
+    )
+
+    return publica(imagens[img_id])
 
 def publica(img: dict) -> dict:
     """Remove os caminhos internos do disco antes de responder ao cliente."""

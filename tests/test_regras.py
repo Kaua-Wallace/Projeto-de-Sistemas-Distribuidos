@@ -1,10 +1,12 @@
-# testes de autenticação, regras de negocio e codigos de erro da Galeria.import hashlib
+# testes de autenticação, regras de negocio e codigos de erro da Galeria 
 
+import hashlib
 import io
 import os
 import uuid
 from datetime import datetime
 from urllib.parse import unquote
+import httpx
 
 import pytest
 from fastapi.testclient import TestClient
@@ -13,9 +15,7 @@ from PIL import Image
 from gallery_service import main as galeria
 from processing_service.main import app as app_proc
 
-gal = TestClient(galeria.app)
-proc = TestClient(app_proc)
-
+gal = None
 
 def png() -> bytes:
     b = io.BytesIO()
@@ -34,26 +34,32 @@ def _limpar_estado():
 
 @pytest.fixture(autouse=True)
 def estado_limpo(monkeypatch, tmp_path):
-    """Cada teste começa com memória vazia e storage em pasta temporária."""
+    global gal
     _limpar_estado()
-    monkeypatch.setattr(galeria, "STORAGE", tmp_path)
-    yield
+    monkeypatch.setattr(
+        galeria,
+        "STORAGE",
+        tmp_path
+    )
+    # Cliente de teste que comunica com o Processamento via ASGI
+    def cliente_processamento_teste():
+
+        return httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app_proc),
+            base_url=galeria.PROCESSING_URL,
+            timeout=galeria.PROCESSING_TIMEOUT_SECONDS
+        )
+    monkeypatch.setattr(
+        galeria,
+        "criar_cliente_processamento",
+        cliente_processamento_teste
+    )
+    # Inicia o lifespan e disponibiliza o TestClient aos testes
+
+    with TestClient(galeria.app) as cliente:
+        gal = cliente
+        yield
     _limpar_estado()
-
-
-class RespostaFake:
-    def __init__(self, r):
-        self.status_code, self.content = r.status_code, r.content
-
-
-@pytest.fixture
-def processamento_fake(monkeypatch):
-    """Galeria 'chama' o Processamento via TestClient, sem rede.
-    ATENÇÃO: depois do merge do Membro 2 (AsyncClient), só este fixture muda."""
-    def fake_post(url, files, timeout):
-        return RespostaFake(proc.post("/internal/thumbnail", files=files))
-    monkeypatch.setattr(galeria.httpx, "post", fake_post)
-
 
 def cadastrar_e_logar(username: str, senha: str = "segredo") -> dict:
     cred = {"username": username, "password": senha}
@@ -213,7 +219,7 @@ def test_historico_isolado_por_usuario():
 
 # path traversal
 
-def test_nome_malicioso_nao_escapa_do_storage(processamento_fake, tmp_path):
+def test_nome_malicioso_nao_escapa_do_storage(tmp_path):
     h = cadastrar_e_logar("ana")
     arq = {"file": ("../../fuga.png", png(), "image/png")}
     r = gal.post("/images", headers=h, files=arq)
@@ -251,7 +257,7 @@ def test_upload_422_sem_arquivo():
     assert gal.post("/images", headers=h).status_code == 422
 
 
-def test_upload_422_imagem_corrompida_repassado(processamento_fake):
+def test_upload_422_imagem_corrompida_repassado():
     h = cadastrar_e_logar("ana")
     arq = {"file": ("a.png", b"nao-e-png", "image/png")}
     assert gal.post("/images", headers=h, files=arq).status_code == 422
@@ -260,7 +266,24 @@ def test_upload_422_imagem_corrompida_repassado(processamento_fake):
 
 def test_upload_503_processamento_fora(monkeypatch):
     h = cadastrar_e_logar("ana")
-    monkeypatch.setattr(galeria, "PROCESSING_URL", "http://127.0.0.1:9")  # porta fechada
-    arq = {"file": ("a.png", png(), "image/png")}
-    assert gal.post("/images", headers=h, files=arq).status_code == 503
-    assert galeria.imagens == {} and galeria.historico == []
+    async def falha_conexao(*args, **kwargs):
+        raise httpx.ConnectError("Falha simulada")
+    monkeypatch.setattr(
+        galeria.app.state.processing_client,
+        "post",
+        falha_conexao
+    )
+    arq = {
+        "file": (
+            "a.png",
+            png(),
+            "image/png"
+        )
+    }
+    assert gal.post(
+        "/images",
+        headers=h,
+        files=arq
+    ).status_code == 503
+    assert galeria.imagens == {}
+    assert galeria.historico == []
