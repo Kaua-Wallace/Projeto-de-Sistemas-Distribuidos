@@ -1,6 +1,8 @@
+
 """Serviço de Galeria (porta 8001): autenticação, metadados, armazenamento e histórico."""
 
 import hashlib
+import hmac
 import os
 import secrets
 import time
@@ -23,6 +25,7 @@ async def logs_http(request, call_next):
         request, call_next, servico="gallery", resolver_usuario=usuario_do_token
     )
 
+
 PROCESSING_URL = os.getenv("PROCESSING_URL", "http://localhost:8002")
 RAIZ = Path(__file__).resolve().parents[1]
 STORAGE = Path(os.getenv("STORAGE_ROOT", RAIZ / "storage"))
@@ -32,30 +35,54 @@ TIPOS_ACEITOS = {
     "image/gif": "gif",
     "image/webp": "webp",
 }
-TAMANHO_MAX = 5 * 1024 * 1024 # 5 MB
+TAMANHO_MAX = 5 * 1024 * 1024  # 5 MB
 
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "gallery"}
 
+
 # Estado central (em memória)
 
-usuarios = {} # username -> hash da senha
-tokens = {} # token -> username
-imagens = {} # id -> metadados da imagem (ver rota de upload)
-historico = [] # uploads: {usuario, image_id, nome, data}
+usuarios = {}  # username -> hash da senha
+tokens = {}  # token -> username
+imagens = {}  # id -> metadados da imagem
+historico = []  # uploads: {usuario, image_id, nome, data}
+
 
 class Credenciais(BaseModel):
     username: str
     password: str
 
+
+ITERACOES_PBKDF2 = 200_000
+
+
 def hash_senha(senha: str) -> str:
-    return hashlib.sha256(senha.encode()).hexdigest()
+    sal = secrets.token_bytes(16)
+    derivado = hashlib.pbkdf2_hmac(
+        "sha256", senha.encode(), sal, ITERACOES_PBKDF2
+    )
+    return f"pbkdf2_sha256${ITERACOES_PBKDF2}${sal.hex()}${derivado.hex()}"
+
+
+def verificar_senha(senha: str, armazenado: str | None) -> bool:
+    if not armazenado:
+        return False
+    try:
+        _, iteracoes, sal, esperado = armazenado.split("$")
+        derivado = hashlib.pbkdf2_hmac(
+            "sha256", senha.encode(), bytes.fromhex(sal), int(iteracoes)
+        )
+    except ValueError:
+        return False
+    return hmac.compare_digest(derivado.hex(), esperado)
 
 
 def usuario_do_token(token: str) -> str | None:
     """Resolve um token de sessão para o nome de usuário, se ainda válido."""
     return tokens.get(token)
+
 
 def usuario_logado(authorization: str = Header(default="")) -> str:
     """Dependência: devolve o usuário do token Bearer ou responde 401."""
@@ -64,6 +91,7 @@ def usuario_logado(authorization: str = Header(default="")) -> str:
     if usuario is None:
         raise HTTPException(401, "Não autenticado")
     return usuario
+
 
 # Autenticação
 
@@ -76,9 +104,10 @@ def cadastrar(c: Credenciais):
     usuarios[c.username] = hash_senha(c.password)
     return {"username": c.username}
 
+
 @app.post("/auth/login")
 def login(c: Credenciais):
-    if usuarios.get(c.username) != hash_senha(c.password):
+    if not verificar_senha(c.password, usuarios.get(c.username)):
         log_evento("login_falhou", servico="gallery", usuario=c.username)
         raise HTTPException(401, "Credenciais inválidas")
     token = secrets.token_urlsafe(24)
@@ -172,17 +201,24 @@ def buscar(img_id: str) -> dict:
     return imagens[img_id]
 
 
+def arquivo_existente(img: dict, chave: str) -> Path:
+    caminho = Path(img[chave])
+    if not caminho.is_file():
+        raise HTTPException(404, "Arquivo da imagem não encontrado no disco")
+    return caminho
+
+
 @app.get("/images/{img_id}/thumbnail")
 def previa(img_id: str, _: str = Depends(usuario_logado)):
-    return FileResponse(buscar(img_id)["caminho_miniatura"], media_type="image/jpeg")
+    caminho = arquivo_existente(buscar(img_id), "caminho_miniatura")
+    return FileResponse(caminho, media_type="image/jpeg")
 
 
 @app.get("/images/{img_id}/download")
 def download(img_id: str, _: str = Depends(usuario_logado)):
     img = buscar(img_id)
-    return FileResponse(
-        img["caminho_original"], media_type=img["tipo"], filename=img["nome"]
-    )
+    caminho = arquivo_existente(img, "caminho_original")
+    return FileResponse(caminho, media_type=img["tipo"], filename=img["nome"])
 
 
 @app.get("/history")
