@@ -11,11 +11,12 @@ from datetime import datetime
 from pathlib import Path
 
 import httpx
-from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from common import log_evento, middleware_logs
 from contextlib import asynccontextmanager
+from starlette.concurrency import run_in_threadpool
 
 PROCESSING_URL = os.getenv(
     "PROCESSING_URL",
@@ -37,6 +38,15 @@ def criar_cliente_processamento():
     return httpx.AsyncClient(
         timeout=PROCESSING_TIMEOUT_SECONDS
     )
+
+
+def usuario_para_log(request: Request) -> str | None:
+    authorization = request.headers.get("authorization", "")
+    if not authorization.lower().startswith("bearer "):
+        return None
+    token = authorization[7:].strip()
+    return usuario_do_token(token)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -62,7 +72,7 @@ app = FastAPI(
 @app.middleware("http")
 async def logs_http(request, call_next):
     return await middleware_logs(
-        request, call_next, servico="gallery", resolver_usuario=usuario_do_token
+        request, call_next, servico="gallery", resolver_usuario=usuario_para_log
     )
 
 @app.get("/health")
@@ -160,7 +170,7 @@ async def upload(
 
     # Leitura assíncrona do arquivo
 
-    dados = await file.read()
+    dados = await file.read(TAMANHO_MAX + 1)
 
     if not dados:
         raise HTTPException(400, "Arquivo vazio")
@@ -176,6 +186,7 @@ async def upload(
 
         r = await app.state.processing_client.post(
             f"{PROCESSING_URL}/internal/thumbnail",
+            headers={"X-User-Context": usuario},
             files={
                 "file": (
                     file.filename,
@@ -248,14 +259,16 @@ async def upload(
     pasta_o = STORAGE / "originals" / usuario
     pasta_t = STORAGE / "thumbnails" / usuario
 
-    pasta_o.mkdir(parents=True, exist_ok=True)
-    pasta_t.mkdir(parents=True, exist_ok=True)
-
     caminho_o = pasta_o / f"{img_id}.{TIPOS_ACEITOS[file.content_type]}"
     caminho_t = pasta_t / f"{img_id}.jpg"
 
-    caminho_o.write_bytes(dados)
-    caminho_t.write_bytes(r.content)
+    await run_in_threadpool(
+        persistir_arquivos,
+        caminho_o,
+        caminho_t,
+        dados,
+        r.content,
+    )
 
     # Registro dos metadados
 
@@ -295,6 +308,18 @@ async def upload(
 def publica(img: dict) -> dict:
     """Remove os caminhos internos do disco antes de responder ao cliente."""
     return {k: v for k, v in img.items() if not k.startswith("caminho")}
+
+
+def persistir_arquivos(
+    caminho_original: Path,
+    caminho_miniatura: Path,
+    original: bytes,
+    miniatura: bytes,
+) -> None:
+    caminho_original.parent.mkdir(parents=True, exist_ok=True)
+    caminho_miniatura.parent.mkdir(parents=True, exist_ok=True)
+    caminho_original.write_bytes(original)
+    caminho_miniatura.write_bytes(miniatura)
 
 
 @app.get("/images")

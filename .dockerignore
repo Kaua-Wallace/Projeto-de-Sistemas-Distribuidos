@@ -1,0 +1,10 @@
+# Arquivos que NÃO vão para dentro das imagens
+.git/
+.venv/
+__pycache__/
+**/__pycache__/
+.pytest_cache/
+storage/
+tests/
+docs/
+*.md

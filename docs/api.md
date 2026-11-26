@@ -52,5 +52,16 @@ Só os uploads do usuário logado. `200`:
 ## Processamento — http://localhost:8002 (interna)
 
 ### POST /internal/thumbnail
-`multipart/form-data` com o campo `file`. `200` corpo = bytes `image/jpeg` (lado máx. 256 px) ·
+`multipart/form-data` com o campo `file`. A Galeria também envia `X-User-Context` para correlacionar
+os logs entre os serviços; esse cabeçalho é apenas contexto de log, não autentica a chamada.
+
+Exemplo de chamada e gravação da miniatura:
+```bash
+curl -X POST http://localhost:8002/internal/thumbnail \
+  -H "X-User-Context: ana" \
+  -F "file=@foto.png" \
+  --output miniatura.jpg
+```
+
+`200` corpo = bytes `image/jpeg` (lado máx. 256 px) ·
 `400` vazio · `413` grande · `415` tipo inválido · `422` imagem corrompida
