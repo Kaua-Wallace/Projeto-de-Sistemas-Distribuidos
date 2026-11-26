@@ -4,11 +4,14 @@ import tempfile
 import httpx
 import pytest
 
+from common import logging_config
+
 os.environ["STORAGE_ROOT"] = tempfile.mkdtemp()
 
 from fastapi.testclient import TestClient
 from PIL import Image
 from gallery_service import main as galeria
+from processing_service import main as processamento
 from processing_service.main import app as app_proc
 
 
@@ -153,6 +156,39 @@ def test_fluxo_completo(gal):
         headers=h
     ).json()
     assert historico[0]["image_id"] == iid
+
+
+def test_upload_inclui_usuario_no_log_do_processamento(gal, monkeypatch):
+    eventos = []
+
+    def capturar_evento(evento, **campos):
+        eventos.append({"evento": evento, **campos})
+    monkeypatch.setattr(
+        logging_config,
+        "log_evento",
+        capturar_evento,
+    )
+    monkeypatch.setattr(
+        processamento,
+        "log_evento",
+        capturar_evento,
+    )
+    h = logar(gal)
+    resposta = gal.post(
+        "/images",
+        headers=h,
+        files={"file": ("foto.png", png(), "image/png")},
+    )
+
+    assert resposta.status_code == 201
+    eventos_processamento = [
+        evento for evento in eventos if evento.get("servico") == "processing"
+    ]
+    assert {
+        evento["evento"] for evento in eventos_processamento
+    } >= {"http_request", "thumbnail_entrada", "thumbnail_resultado"}
+    assert all(evento.get("usuario") == "ana" for evento in eventos_processamento)
+
 
 def test_upload_validacoes(gal, monkeypatch):
 

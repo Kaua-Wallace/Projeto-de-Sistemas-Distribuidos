@@ -7,6 +7,8 @@ import time
 from datetime import datetime, timezone
 from typing import Callable
 
+from starlette.requests import Request
+
 _LOGGER = logging.getLogger("projeto_distribuido")
 
 
@@ -31,11 +33,9 @@ def log_evento(evento: str, **campos) -> None:
 
 
 async def middleware_logs(request, call_next, *, servico: str,
-                          resolver_usuario: Callable[[str], str | None] | None = None):
+                          resolver_usuario: Callable[[Request], str | None] | None = None):
     inicio = time.perf_counter()
-    authorization = request.headers.get("authorization", "")
-    token = authorization[7:].strip() if authorization.lower().startswith("bearer ") else ""
-    usuario = resolver_usuario(token) if token and resolver_usuario else None
+    usuario = resolver_usuario(request) if resolver_usuario else None
     status = 500
     try:
         response = await call_next(request)

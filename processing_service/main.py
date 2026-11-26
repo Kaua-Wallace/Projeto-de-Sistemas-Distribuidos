@@ -1,7 +1,7 @@
 """Serviço de Processamento (porta 8002): gera thumbnails. Chamado só pela Galeria."""
 import io
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 from PIL import Image, UnidentifiedImageError
 from common import log_evento, middleware_logs
@@ -10,9 +10,18 @@ from starlette.concurrency import run_in_threadpool
 app = FastAPI(title="Serviço de Processamento")
 
 
+def usuario_para_log(request: Request) -> str | None:
+    return request.headers.get("x-user-context")
+
+
 @app.middleware("http")
 async def logs_http(request, call_next):
-    return await middleware_logs(request, call_next, servico="processing")
+    return await middleware_logs(
+        request,
+        call_next,
+        servico="processing",
+        resolver_usuario=usuario_para_log,
+    )
 
 TIPOS_ACEITOS = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 TAMANHO_MAX = 5 * 1024 * 1024  # 5 MB
@@ -40,18 +49,20 @@ def health():
 
 
 @app.post("/internal/thumbnail")
-async def gerar_thumbnail(file: UploadFile = File(...)):
+async def gerar_thumbnail(request: Request, file: UploadFile = File(...)):
+    usuario = request.headers.get("x-user-context")
     log_evento(
         "thumbnail_entrada",
         servico="processing",
-        arquivo=file.filename
+        arquivo=file.filename,
+        usuario=usuario,
     )
     if file.content_type not in TIPOS_ACEITOS:
         raise HTTPException(
             415,
             "Tipo de imagem não aceito"
         )
-    dados = await file.read()
+    dados = await file.read(TAMANHO_MAX + 1)
     if not dados:
         raise HTTPException(
             400,
@@ -78,7 +89,8 @@ async def gerar_thumbnail(file: UploadFile = File(...)):
         "thumbnail_resultado",
         servico="processing",
         status=200,
-        tamanho=len(resultado)
+        tamanho=len(resultado),
+        usuario=usuario,
     )
     return Response(
         resultado,
