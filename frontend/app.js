@@ -12,6 +12,7 @@ import {
 } from "./api.js";
 import { mostrarAviso } from "./toast.js";
 import { montarUpload } from "./upload.js";
+import { iniciarGaleria, pararGaleria } from "./galeria.js";
 
 const carregandoInicial = document.getElementById("carregando-inicial");
 const telaAuth = document.getElementById("tela-auth");
@@ -155,16 +156,18 @@ function abrirApp() {
 function iniciarApp() {
   conteudo.innerHTML = `
     <div id="area-upload"></div>
-    <div id="area-galeria"><p class="placeholder">Galeria em breve.</p></div>`;
+    <div id="area-galeria"></div>`;
   montarUpload(document.getElementById("area-upload"), {
     enviar: async (arquivos) => {
       mostrarAviso(`${arquivos.length} imagem(ns) pronta(s) para envio.`, "info");
     },
   });
+  iniciarGaleria(document.getElementById("area-galeria"));
 }
 
 // Desmonta o que iniciarApp() montou (timers, object URLs...)
 function encerrarApp() {
+  pararGaleria();
   conteudo.replaceChildren();
 }
 
