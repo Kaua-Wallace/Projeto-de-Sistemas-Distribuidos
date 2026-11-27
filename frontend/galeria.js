@@ -2,6 +2,9 @@
 
 import { baixarMiniatura, listarImagens } from "./api.js";
 
+// Atualização automática: outra pessoa envia e a imagem aparece sem F5.
+const INTERVALO_ATUALIZACAO_MS = 5000;
+
 const formatoData = new Intl.DateTimeFormat("pt-BR", {
   dateStyle: "short",
   timeStyle: "short",
@@ -40,12 +43,16 @@ export function iniciarGaleria(container) {
     carregouUmaVez: false,
     buscando: false,
     pendente: false,
+    timer: null,
   };
+  document.addEventListener("visibilitychange", aoMudarVisibilidade);
   atualizarGaleria();
 }
 
 export function pararGaleria() {
   if (!estado) return;
+  clearTimeout(estado.timer);
+  document.removeEventListener("visibilitychange", aoMudarVisibilidade);
   revogarTodas(estado);
   estado = null;
 }
@@ -61,6 +68,19 @@ function revogarMiniatura(atual, id) {
   const url = atual.miniaturas.get(id);
   if (url) URL.revokeObjectURL(url);
   atual.miniaturas.delete(id);
+}
+
+// Polling: agenda a próxima busca, mas não gasta rede com a aba escondida.
+function agendarProxima(atual) {
+  clearTimeout(atual.timer);
+  if (document.hidden) return;
+  atual.timer = setTimeout(atualizarGaleria, INTERVALO_ATUALIZACAO_MS);
+}
+
+function aoMudarVisibilidade() {
+  if (!estado) return;
+  if (document.hidden) clearTimeout(estado.timer);
+  else atualizarGaleria(); // voltou para a aba: atualiza na hora
 }
 
 // Busca a lista na API e sincroniza a grade. Chamadas simultâneas são
@@ -83,15 +103,19 @@ export async function atualizarGaleria() {
     if (atual !== estado || erro.status === 401) return; // 401: o app.js volta ao login
     atual.faixa.textContent =
       erro.status === 0
-        ? "Sem conexão com o servidor."
-        : `Não foi possível carregar a galeria: ${erro.mensagem}`;
+        ? "Sem conexão com o servidor. Tentando de novo…"
+        : `Não foi possível atualizar a galeria (${erro.mensagem}). Tentando de novo…`;
     atual.faixa.hidden = false;
     if (!atual.carregouUmaVez) atual.textoEstado.textContent = "Não foi possível carregar as imagens.";
   } finally {
     atual.buscando = false;
-    if (atual === estado && atual.pendente) {
-      atual.pendente = false;
-      atualizarGaleria();
+    if (atual === estado) {
+      if (atual.pendente) {
+        atual.pendente = false;
+        atualizarGaleria();
+      } else {
+        agendarProxima(atual);
+      }
     }
   }
 }
