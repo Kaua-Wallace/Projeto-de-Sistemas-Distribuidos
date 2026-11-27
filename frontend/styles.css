@@ -313,3 +313,87 @@ input:focus-visible {
     transform: translateY(8px);
   }
 }
+
+/* Upload */
+
+.upload {
+  margin-bottom: 1.5rem;
+  padding: 1.25rem;
+  background: var(--cor-superficie);
+  border-radius: var(--raio);
+  box-shadow: var(--sombra);
+}
+
+.upload-cabecalho h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.upload-cabecalho .dica {
+  margin: 0.15rem 0 0.9rem;
+}
+
+.upload-acoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.seletor {
+  position: relative;
+}
+
+/* O input fica invisível sobre o rótulo, que funciona como botão */
+.seletor input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.seletor:focus-within {
+  outline: 3px solid rgba(47, 91, 211, 0.35);
+  outline-offset: 1px;
+}
+
+.lista-arquivos {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.lista-arquivos:empty {
+  display: none;
+}
+
+.arquivo {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  background: var(--cor-fundo);
+  font-size: 0.9rem;
+}
+
+.arquivo-nome {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arquivo-info {
+  flex-shrink: 0;
+  color: var(--cor-texto-suave);
+}
+
+.arquivo.invalido {
+  background: #fdecea;
+}
+
+.arquivo.invalido .arquivo-info {
+  color: var(--cor-erro);
+}
