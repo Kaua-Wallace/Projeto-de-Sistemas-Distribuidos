@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Galeria Colaborativa</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <p id="carregando-inicial" class="carregando-inicial">Carregando…</p>
+
+  <!-- Tela de autenticação (login e cadastro) -->
+  <section id="tela-auth" class="tela" hidden></section>
+
+  <!-- Tela principal: os outros módulos montam suas seções em #conteudo -->
+  <section id="tela-app" class="tela" hidden>
+    <main id="conteudo"></main>
+  </section>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
