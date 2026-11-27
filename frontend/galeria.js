@@ -1,6 +1,7 @@
 // Galeria: grade com miniatura, autor e data de cada imagem enviada.
 
-import { baixarMiniatura, listarImagens } from "./api.js";
+import { baixarMiniatura, baixarOriginal, listarImagens } from "./api.js";
+import { mostrarAviso } from "./toast.js";
 
 // Atualização automática: outra pessoa envia e a imagem aparece sem F5.
 const INTERVALO_ATUALIZACAO_MS = 5000;
@@ -37,7 +38,9 @@ export function iniciarGaleria(container) {
         <div class="previa-imagem"><img alt=""></div>
         <h3 id="previa-titulo"></h3>
         <p class="previa-meta"></p>
-        <div class="previa-acoes"></div>
+        <div class="previa-acoes">
+          <button type="button" class="botao primario previa-baixar">Baixar original</button>
+        </div>
       </div>
     </dialog>`;
 
@@ -265,6 +268,9 @@ function ligarPrevia(atual) {
   dialogo.addEventListener("click", (evento) => {
     if (evento.target === dialogo) dialogo.close();
   });
+  dialogo.querySelector(".previa-baixar").addEventListener("click", (evento) => {
+    if (atual.idNaPrevia) baixar(atual.idNaPrevia, evento.currentTarget);
+  });
   dialogo.addEventListener("close", () => {
     atual.idNaPrevia = null;
     dialogo.querySelector(".previa-imagem img").removeAttribute("src");
@@ -293,4 +299,36 @@ function abrirPrevia(id) {
   dialogo.querySelector(".previa-meta").textContent =
     `Enviada por ${img.autor} em ${formatarData(img.data)}`;
   dialogo.showModal();
+}
+
+// Download: um link direto não enviaria o token, então o original vem por
+// fetch, vira blob e é salvo por um <a download> temporário.
+async function baixar(id, botao) {
+  const textoOriginal = botao.textContent;
+  botao.disabled = true;
+  botao.textContent = "Baixando…";
+  try {
+    const { blob, nomeArquivo } = await baixarOriginal(id);
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = nomeArquivo;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    // Dá tempo ao navegador de começar a gravar antes de liberar a memória
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    mostrarAviso(`Download de "${nomeArquivo}" iniciado.`, "sucesso");
+  } catch (erro) {
+    if (erro.status === 401) return; // o app.js volta ao login
+    mostrarAviso(
+      erro.status === 404
+        ? "O arquivo original não foi encontrado no servidor."
+        : `Falha no download: ${erro.mensagem}`,
+      "erro",
+    );
+  } finally {
+    botao.disabled = false;
+    botao.textContent = textoOriginal;
+  }
 }

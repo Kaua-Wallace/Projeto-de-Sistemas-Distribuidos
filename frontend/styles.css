@@ -601,6 +601,7 @@ input:focus-visible {
   color: var(--cor-texto-suave);
 }
 
-.previa-acoes:empty {
-  display: none;
+.previa-acoes {
+  display: flex;
+  justify-content: flex-end;
 }
