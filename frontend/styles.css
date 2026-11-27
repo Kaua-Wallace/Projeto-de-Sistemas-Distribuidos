@@ -534,3 +534,73 @@ input:focus-visible {
     animation: none;
   }
 }
+
+/* Prévia */
+
+.previa {
+  width: min(560px, calc(100vw - 2rem));
+  padding: 0;
+  border: 0;
+  border-radius: var(--raio);
+  box-shadow: 0 20px 50px rgba(16, 24, 40, 0.3);
+}
+
+.previa::backdrop {
+  background: rgba(16, 24, 40, 0.6);
+}
+
+.previa-corpo {
+  position: relative;
+  padding: 1.25rem;
+}
+
+.previa-fechar {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.6rem;
+  border: 0;
+  background: none;
+  font-size: 1.6rem;
+  line-height: 1;
+  color: var(--cor-texto-suave);
+  cursor: pointer;
+}
+
+.previa-imagem {
+  display: grid;
+  place-items: center;
+  min-height: 200px;
+  margin-top: 1.25rem;
+  border-radius: 8px;
+  background: #e9ebf0;
+  overflow: hidden;
+}
+
+.previa-imagem img {
+  display: block;
+  max-width: 100%;
+  max-height: 60vh;
+}
+
+.previa-imagem.falhou img {
+  display: none;
+}
+
+.previa-imagem.falhou::after {
+  content: "Miniatura indisponível";
+  color: var(--cor-texto-suave);
+}
+
+.previa-corpo h3 {
+  margin: 1rem 0 0.15rem;
+  overflow-wrap: anywhere;
+}
+
+.previa-meta {
+  margin: 0 0 1rem;
+  color: var(--cor-texto-suave);
+}
+
+.previa-acoes:empty {
+  display: none;
+}

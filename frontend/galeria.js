@@ -30,7 +30,16 @@ export function iniciarGaleria(container) {
       <p class="faixa-conexao" role="status" hidden></p>
       <p class="galeria-estado">Carregando imagens…</p>
       <ul class="grade"></ul>
-    </section>`;
+    </section>
+    <dialog class="previa" aria-labelledby="previa-titulo">
+      <div class="previa-corpo">
+        <button type="button" class="previa-fechar" aria-label="Fechar prévia">×</button>
+        <div class="previa-imagem"><img alt=""></div>
+        <h3 id="previa-titulo"></h3>
+        <p class="previa-meta"></p>
+        <div class="previa-acoes"></div>
+      </div>
+    </dialog>`;
 
   estado = {
     grade: container.querySelector(".grade"),
@@ -44,7 +53,14 @@ export function iniciarGaleria(container) {
     buscando: false,
     pendente: false,
     timer: null,
+    dialogo: container.querySelector(".previa"),
+    idNaPrevia: null,
   };
+  ligarPrevia(estado);
+  estado.grade.addEventListener("click", (evento) => {
+    const card = evento.target.closest(".card");
+    if (card) abrirPrevia(card.dataset.id);
+  });
   document.addEventListener("visibilitychange", aoMudarVisibilidade);
   atualizarGaleria();
 }
@@ -53,6 +69,7 @@ export function pararGaleria() {
   if (!estado) return;
   clearTimeout(estado.timer);
   document.removeEventListener("visibilitychange", aoMudarVisibilidade);
+  if (estado.dialogo.open) estado.dialogo.close();
   revogarTodas(estado);
   estado = null;
 }
@@ -132,6 +149,7 @@ function renderizar(atual, lista) {
       atual.cards.delete(id);
       atual.imagens.delete(id);
       revogarMiniatura(atual, id);
+      if (atual.idNaPrevia === id) atual.dialogo.close(); // removida enquanto aberta
     }
   }
 
@@ -236,4 +254,43 @@ function mostrarPlaceholder(card, motivo) {
     moldura.append(aviso);
   }
   card.dataset.miniatura = motivo;
+}
+
+// Prévia: abre num <dialog> a miniatura (já em cache) com autor e data.
+
+function ligarPrevia(atual) {
+  const { dialogo } = atual;
+  dialogo.querySelector(".previa-fechar").addEventListener("click", () => dialogo.close());
+  // Clique fora do conteúdo (no fundo escurecido) fecha; Esc é nativo do <dialog>
+  dialogo.addEventListener("click", (evento) => {
+    if (evento.target === dialogo) dialogo.close();
+  });
+  dialogo.addEventListener("close", () => {
+    atual.idNaPrevia = null;
+    dialogo.querySelector(".previa-imagem img").removeAttribute("src");
+  });
+}
+
+function abrirPrevia(id) {
+  const atual = estado;
+  const img = atual?.imagens.get(id);
+  if (!img) return;
+  const { dialogo } = atual;
+  const imagem = dialogo.querySelector(".previa-imagem img");
+  const moldura = dialogo.querySelector(".previa-imagem");
+  const url = atual.miniaturas.get(id);
+
+  atual.idNaPrevia = id;
+  moldura.classList.toggle("falhou", !url);
+  if (url) {
+    imagem.src = url;
+    imagem.alt = `Prévia de ${img.nome ?? "imagem"} enviada por ${img.autor}`;
+  } else {
+    imagem.removeAttribute("src");
+    imagem.alt = "Miniatura indisponível";
+  }
+  dialogo.querySelector("#previa-titulo").textContent = img.nome ?? "Imagem";
+  dialogo.querySelector(".previa-meta").textContent =
+    `Enviada por ${img.autor} em ${formatarData(img.data)}`;
+  dialogo.showModal();
 }
