@@ -165,3 +165,30 @@ export function enviarImagem(arquivo) {
 export function baixarMiniatura(urlMiniatura) {
   return requisicao(urlMiniatura, { formato: "blob" });
 }
+
+// Lê o nome do arquivo do Content-Disposition, nos dois formatos que o
+// servidor pode usar: filename*=utf-8''nome%20codificado ou filename="nome".
+function nomeDoContentDisposition(cabecalho) {
+  if (!cabecalho) return null;
+  const estendido = /filename\*\s*=\s*[^']*'[^']*'([^;]+)/i.exec(cabecalho);
+  if (estendido) {
+    try {
+      return decodeURIComponent(estendido[1].trim());
+    } catch {
+      /* cai no formato simples */
+    }
+  }
+  const simples = /filename\s*=\s*"?([^";]+)"?/i.exec(cabecalho);
+  return simples ? simples[1].trim() : null;
+}
+
+// Baixa o original com o token e devolve o blob e o nome enviado pelo autor.
+export async function baixarOriginal(id) {
+  const resposta = await requisicao(`/images/${encodeURIComponent(id)}/download`, {
+    formato: "resposta",
+  });
+  const blob = await resposta.blob();
+  const nomeArquivo =
+    nomeDoContentDisposition(resposta.headers.get("content-disposition")) || `imagem-${id}`;
+  return { blob, nomeArquivo };
+}
