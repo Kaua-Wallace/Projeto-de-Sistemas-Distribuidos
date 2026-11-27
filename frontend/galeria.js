@@ -1,6 +1,6 @@
 // Galeria: grade com miniatura, autor e data de cada imagem enviada.
 
-import { listarImagens } from "./api.js";
+import { baixarMiniatura, listarImagens } from "./api.js";
 
 const formatoData = new Intl.DateTimeFormat("pt-BR", {
   dateStyle: "short",
@@ -36,6 +36,7 @@ export function iniciarGaleria(container) {
     faixa: container.querySelector(".faixa-conexao"),
     cards: new Map(), // id -> <li>
     imagens: new Map(), // id -> metadados vindos da API
+    miniaturas: new Map(), // id -> object URL da miniatura (null enquanto carrega ou se falhou)
     carregouUmaVez: false,
     buscando: false,
     pendente: false,
@@ -45,7 +46,21 @@ export function iniciarGaleria(container) {
 
 export function pararGaleria() {
   if (!estado) return;
+  revogarTodas(estado);
   estado = null;
+}
+
+function revogarTodas(atual) {
+  for (const url of atual.miniaturas.values()) {
+    if (url) URL.revokeObjectURL(url);
+  }
+  atual.miniaturas.clear();
+}
+
+function revogarMiniatura(atual, id) {
+  const url = atual.miniaturas.get(id);
+  if (url) URL.revokeObjectURL(url);
+  atual.miniaturas.delete(id);
 }
 
 // Busca a lista na API e sincroniza a grade. Chamadas simultâneas são
@@ -92,6 +107,7 @@ function renderizar(atual, lista) {
       card.remove();
       atual.cards.delete(id);
       atual.imagens.delete(id);
+      revogarMiniatura(atual, id);
     }
   }
 
@@ -102,6 +118,9 @@ function renderizar(atual, lista) {
     if (!card) {
       card = criarCard(img);
       atual.cards.set(img.id, card);
+      carregarMiniatura(atual, img, card);
+    } else if (card.dataset.miniatura === "sem-conexao") {
+      carregarMiniatura(atual, img, card); // tenta de novo quando a rede volta
     }
     if (atual.grade.children[indice] !== card) {
       atual.grade.insertBefore(card, atual.grade.children[indice] ?? null);
@@ -155,4 +174,42 @@ function criarCard(img) {
   botao.append(moldura, info);
   card.append(botao);
   return card;
+}
+
+// Cada miniatura é baixada uma única vez e fica em cache até sair da lista
+// ou a galeria ser desmontada.
+async function carregarMiniatura(atual, img, card) {
+  const moldura = card.querySelector(".card-miniatura");
+  const imagem = moldura.querySelector("img");
+  card.dataset.miniatura = "carregando";
+  atual.miniaturas.set(img.id, null);
+  try {
+    const blob = await baixarMiniatura(img.url_miniatura);
+    if (atual !== estado || !atual.cards.has(img.id)) return; // card ou galeria já foram descartados
+    const url = URL.createObjectURL(blob);
+    atual.miniaturas.set(img.id, url);
+    imagem.onerror = () => mostrarPlaceholder(card, "falhou");
+    imagem.src = url;
+    imagem.hidden = false;
+    moldura.classList.remove("carregando", "falhou");
+    moldura.querySelector(".placeholder-miniatura")?.remove();
+    card.dataset.miniatura = "ok";
+  } catch (erro) {
+    if (atual !== estado) return;
+    mostrarPlaceholder(card, erro.status === 0 ? "sem-conexao" : "falhou");
+  }
+}
+
+function mostrarPlaceholder(card, motivo) {
+  const moldura = card.querySelector(".card-miniatura");
+  moldura.classList.remove("carregando");
+  moldura.classList.add("falhou");
+  moldura.querySelector("img").hidden = true;
+  if (!moldura.querySelector(".placeholder-miniatura")) {
+    const aviso = document.createElement("span");
+    aviso.className = "placeholder-miniatura";
+    aviso.textContent = "Miniatura indisponível";
+    moldura.append(aviso);
+  }
+  card.dataset.miniatura = motivo;
 }

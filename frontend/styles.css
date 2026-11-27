@@ -512,3 +512,25 @@ input:focus-visible {
   font-size: 0.85rem;
   color: var(--cor-texto-suave);
 }
+
+.card-miniatura.carregando {
+  background: linear-gradient(90deg, #e9ebf0 25%, #f3f4f7 50%, #e9ebf0 75%);
+  background-size: 200% 100%;
+  animation: brilho 1.2s linear infinite;
+}
+
+.card-miniatura.falhou {
+  background: repeating-linear-gradient(45deg, #eceef2, #eceef2 8px, #e3e6eb 8px, #e3e6eb 16px);
+}
+
+@keyframes brilho {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card-miniatura.carregando {
+    animation: none;
+  }
+}
