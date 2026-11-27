@@ -13,6 +13,7 @@ from pathlib import Path
 import httpx
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from common import log_evento, middleware_logs
 from contextlib import asynccontextmanager
@@ -360,3 +361,12 @@ def download(img_id: str, _: str = Depends(usuario_logado)):
 @app.get("/history")
 def meu_historico(usuario: str = Depends(usuario_logado)):
     return [h for h in historico if h["usuario"] == usuario]
+
+
+# Interface web (HTML/CSS/JS) servida na mesma origem da API: dispensa CORS.
+# Fica por último para não sombrear nenhuma rota da API.
+app.mount(
+    "/app",
+    StaticFiles(directory=RAIZ / "frontend", html=True),
+    name="frontend",
+)
