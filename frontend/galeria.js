@@ -295,7 +295,8 @@ function abrirPrevia(id) {
     imagem.removeAttribute("src");
     imagem.alt = "Miniatura indisponível";
   }
-  dialogo.querySelector("#previa-titulo").textContent = img.nome ?? "Imagem";
+  // GET /images ainda não traz o nome do arquivo; usa o autor até lá
+  dialogo.querySelector("#previa-titulo").textContent = img.nome ?? `Imagem de ${img.autor}`;
   dialogo.querySelector(".previa-meta").textContent =
     `Enviada por ${img.autor} em ${formatarData(img.data)}`;
   dialogo.showModal();
