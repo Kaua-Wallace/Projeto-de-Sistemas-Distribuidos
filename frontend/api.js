@@ -153,3 +153,9 @@ export function validarSessao() {
 export function listarImagens() {
   return requisicao("/images");
 }
+
+export function enviarImagem(arquivo) {
+  const form = new FormData();
+  form.append("file", arquivo, arquivo.name);
+  return requisicao("/images", { metodo: "POST", form });
+}

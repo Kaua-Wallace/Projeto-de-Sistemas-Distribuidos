@@ -8,11 +8,12 @@ import {
   limparSessao,
   salvarSessao,
   sessaoAtual,
+  enviarImagem,
   validarSessao,
 } from "./api.js";
 import { mostrarAviso } from "./toast.js";
 import { montarUpload } from "./upload.js";
-import { iniciarGaleria, pararGaleria } from "./galeria.js";
+import { atualizarGaleria, iniciarGaleria, pararGaleria } from "./galeria.js";
 
 const carregandoInicial = document.getElementById("carregando-inicial");
 const telaAuth = document.getElementById("tela-auth");
@@ -157,12 +158,27 @@ function iniciarApp() {
   conteudo.innerHTML = `
     <div id="area-upload"></div>
     <div id="area-galeria"></div>`;
-  montarUpload(document.getElementById("area-upload"), {
-    enviar: async (arquivos) => {
-      mostrarAviso(`${arquivos.length} imagem(ns) pronta(s) para envio.`, "info");
-    },
-  });
+  montarUpload(document.getElementById("area-upload"), { enviar: enviarArquivos });
   iniciarGaleria(document.getElementById("area-galeria"));
+}
+
+// Envia os arquivos em paralelo (um POST /images por arquivo) e avisa o
+// resultado de cada um com a mensagem do servidor (413, 415, 422, 502, 503...).
+async function enviarArquivos(arquivos) {
+  const resultados = await Promise.allSettled(arquivos.map((a) => enviarImagem(a)));
+  let enviados = 0;
+  resultados.forEach((resultado, i) => {
+    const nome = arquivos[i].name;
+    if (resultado.status === "fulfilled") {
+      enviados += 1;
+      mostrarAviso(`"${nome}" enviada.`, "sucesso");
+    } else if (resultado.reason?.status !== 401) {
+      // 401 já leva ao login; os demais erros aparecem por arquivo
+      const motivo = resultado.reason?.mensagem ?? "erro inesperado";
+      mostrarAviso(`Falha ao enviar "${nome}": ${motivo}`, "erro");
+    }
+  });
+  if (enviados) atualizarGaleria();
 }
 
 // Desmonta o que iniciarApp() montou (timers, object URLs...)
