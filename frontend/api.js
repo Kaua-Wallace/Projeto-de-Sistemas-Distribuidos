@@ -147,3 +147,48 @@ export function entrar(username, password) {
 export function validarSessao() {
   return requisicao("/history");
 }
+
+// Imagens
+
+export function listarImagens() {
+  return requisicao("/images");
+}
+
+export function enviarImagem(arquivo) {
+  const form = new FormData();
+  form.append("file", arquivo, arquivo.name);
+  return requisicao("/images", { metodo: "POST", form });
+}
+
+// <img src> não envia o header Authorization: a miniatura vem por fetch e
+// vira um blob, que a tela exibe com URL.createObjectURL.
+export function baixarMiniatura(urlMiniatura) {
+  return requisicao(urlMiniatura, { formato: "blob" });
+}
+
+// Lê o nome do arquivo do Content-Disposition, nos dois formatos que o
+// servidor pode usar: filename*=utf-8''nome%20codificado ou filename="nome".
+function nomeDoContentDisposition(cabecalho) {
+  if (!cabecalho) return null;
+  const estendido = /filename\*\s*=\s*[^']*'[^']*'([^;]+)/i.exec(cabecalho);
+  if (estendido) {
+    try {
+      return decodeURIComponent(estendido[1].trim());
+    } catch {
+      /* cai no formato simples */
+    }
+  }
+  const simples = /filename\s*=\s*"?([^";]+)"?/i.exec(cabecalho);
+  return simples ? simples[1].trim() : null;
+}
+
+// Baixa o original com o token e devolve o blob e o nome enviado pelo autor.
+export async function baixarOriginal(id) {
+  const resposta = await requisicao(`/images/${encodeURIComponent(id)}/download`, {
+    formato: "resposta",
+  });
+  const blob = await resposta.blob();
+  const nomeArquivo =
+    nomeDoContentDisposition(resposta.headers.get("content-disposition")) || `imagem-${id}`;
+  return { blob, nomeArquivo };
+}

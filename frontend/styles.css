@@ -313,3 +313,295 @@ input:focus-visible {
     transform: translateY(8px);
   }
 }
+
+/* Upload */
+
+.upload {
+  margin-bottom: 1.5rem;
+  padding: 1.25rem;
+  background: var(--cor-superficie);
+  border-radius: var(--raio);
+  box-shadow: var(--sombra);
+}
+
+.upload-cabecalho h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.upload-cabecalho .dica {
+  margin: 0.15rem 0 0.9rem;
+}
+
+.upload-acoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.seletor {
+  position: relative;
+}
+
+/* O input fica invisível sobre o rótulo, que funciona como botão */
+.seletor input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.seletor:focus-within {
+  outline: 3px solid rgba(47, 91, 211, 0.35);
+  outline-offset: 1px;
+}
+
+.lista-arquivos {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.lista-arquivos:empty {
+  display: none;
+}
+
+.arquivo {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  background: var(--cor-fundo);
+  font-size: 0.9rem;
+}
+
+.arquivo-nome {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arquivo-info {
+  flex-shrink: 0;
+  color: var(--cor-texto-suave);
+}
+
+.arquivo.invalido {
+  background: #fdecea;
+}
+
+.arquivo.invalido .arquivo-info {
+  color: var(--cor-erro);
+}
+
+/* Galeria */
+
+.galeria-cabecalho {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.galeria-cabecalho h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.contador {
+  color: var(--cor-texto-suave);
+  font-size: 0.9rem;
+}
+
+.galeria-estado {
+  padding: 2.5rem 1rem;
+  text-align: center;
+  color: var(--cor-texto-suave);
+  border: 2px dashed var(--cor-borda);
+  border-radius: var(--raio);
+}
+
+.faixa-conexao {
+  margin: 0 0 0.75rem;
+  padding: 0.6rem 0.9rem;
+  border-radius: 8px;
+  background: #fff4e5;
+  color: #8a4b00;
+  font-size: 0.9rem;
+}
+
+.grade {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 1rem;
+}
+
+.card-botao {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 0;
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio);
+  background: var(--cor-superficie);
+  overflow: hidden;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  cursor: zoom-in;
+  transition: box-shadow 0.15s, transform 0.15s;
+}
+
+.card-botao:hover {
+  box-shadow: var(--sombra);
+  transform: translateY(-1px);
+}
+
+.card-botao:focus-visible {
+  outline: 3px solid rgba(47, 91, 211, 0.35);
+  outline-offset: 2px;
+}
+
+.card-miniatura {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 4 / 3;
+  background: #e9ebf0;
+  color: var(--cor-texto-suave);
+  font-size: 0.85rem;
+}
+
+.card-miniatura img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.6rem 0.75rem;
+  min-width: 0;
+}
+
+.card-nome {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-autor {
+  font-weight: 600;
+}
+
+.card-nome + .card-autor {
+  font-weight: 400;
+}
+
+.card-data {
+  font-size: 0.85rem;
+  color: var(--cor-texto-suave);
+}
+
+.card-miniatura.carregando {
+  background: linear-gradient(90deg, #e9ebf0 25%, #f3f4f7 50%, #e9ebf0 75%);
+  background-size: 200% 100%;
+  animation: brilho 1.2s linear infinite;
+}
+
+.card-miniatura.falhou {
+  background: repeating-linear-gradient(45deg, #eceef2, #eceef2 8px, #e3e6eb 8px, #e3e6eb 16px);
+}
+
+@keyframes brilho {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card-miniatura.carregando {
+    animation: none;
+  }
+}
+
+/* Prévia */
+
+.previa {
+  width: min(560px, calc(100vw - 2rem));
+  padding: 0;
+  border: 0;
+  border-radius: var(--raio);
+  box-shadow: 0 20px 50px rgba(16, 24, 40, 0.3);
+}
+
+.previa::backdrop {
+  background: rgba(16, 24, 40, 0.6);
+}
+
+.previa-corpo {
+  position: relative;
+  padding: 1.25rem;
+}
+
+.previa-fechar {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.6rem;
+  border: 0;
+  background: none;
+  font-size: 1.6rem;
+  line-height: 1;
+  color: var(--cor-texto-suave);
+  cursor: pointer;
+}
+
+.previa-imagem {
+  display: grid;
+  place-items: center;
+  min-height: 200px;
+  margin-top: 1.25rem;
+  border-radius: 8px;
+  background: #e9ebf0;
+  overflow: hidden;
+}
+
+.previa-imagem img {
+  display: block;
+  max-width: 100%;
+  max-height: 60vh;
+}
+
+.previa-imagem.falhou img {
+  display: none;
+}
+
+.previa-imagem.falhou::after {
+  content: "Miniatura indisponível";
+  color: var(--cor-texto-suave);
+}
+
+.previa-corpo h3 {
+  margin: 1rem 0 0.15rem;
+  overflow-wrap: anywhere;
+}
+
+.previa-meta {
+  margin: 0 0 1rem;
+  color: var(--cor-texto-suave);
+}
+
+.previa-acoes {
+  display: flex;
+  justify-content: flex-end;
+}
