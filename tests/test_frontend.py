@@ -27,7 +27,7 @@ def test_app_sem_barra_redireciona():
 
 
 def test_app_serve_modulos_js():
-    for arquivo in ("api.js", "app.js"):
+    for arquivo in ("api.js", "app.js", "toast.js", "upload.js", "galeria.js"):
         r = cliente.get(f"/app/{arquivo}")
         assert r.status_code == 200, arquivo
         assert "javascript" in r.headers["content-type"], arquivo
