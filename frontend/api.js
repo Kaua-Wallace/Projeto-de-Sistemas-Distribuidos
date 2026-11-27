@@ -147,3 +147,9 @@ export function entrar(username, password) {
 export function validarSessao() {
   return requisicao("/history");
 }
+
+// Imagens
+
+export function listarImagens() {
+  return requisicao("/images");
+}
