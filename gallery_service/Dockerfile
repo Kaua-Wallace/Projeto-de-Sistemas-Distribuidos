@@ -15,6 +15,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copia apenas o código deste serviço
 COPY gallery_service/ ./gallery_service/
 COPY common/ ./common/
+# Interface web servida pela Galeria em /app
+COPY frontend/ ./frontend/
 
 EXPOSE 8001
 

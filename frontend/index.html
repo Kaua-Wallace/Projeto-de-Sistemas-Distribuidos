@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Galeria Colaborativa</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <p id="carregando-inicial" class="carregando-inicial">Carregando…</p>
+
+  <!-- Tela de autenticação (login e cadastro) -->
+  <section id="tela-auth" class="tela" hidden>
+    <div class="cartao-auth">
+      <h1>Galeria Colaborativa</h1>
+      <p class="subtitulo">Entre para enviar e ver as imagens da equipe.</p>
+
+      <div class="abas" role="tablist" aria-label="Entrar ou cadastrar">
+        <button type="button" role="tab" id="aba-entrar" data-aba="entrar"
+                aria-controls="form-entrar" aria-selected="true">Entrar</button>
+        <button type="button" role="tab" id="aba-cadastrar" data-aba="cadastrar"
+                aria-controls="form-cadastrar" aria-selected="false">Cadastrar</button>
+      </div>
+
+      <form id="form-entrar" role="tabpanel" aria-labelledby="aba-entrar" novalidate>
+        <p class="erro-form" role="alert" hidden></p>
+        <div class="campo">
+          <label for="entrar-usuario">Usuário</label>
+          <input id="entrar-usuario" name="username" autocomplete="username"
+                 aria-describedby="entrar-usuario-erro">
+          <small class="erro-campo" id="entrar-usuario-erro" data-erro="username"></small>
+        </div>
+        <div class="campo">
+          <label for="entrar-senha">Senha</label>
+          <input id="entrar-senha" name="password" type="password" autocomplete="current-password"
+                 aria-describedby="entrar-senha-erro">
+          <small class="erro-campo" id="entrar-senha-erro" data-erro="password"></small>
+        </div>
+        <button type="submit" class="botao primario">Entrar</button>
+      </form>
+
+      <form id="form-cadastrar" role="tabpanel" aria-labelledby="aba-cadastrar" novalidate hidden>
+        <p class="erro-form" role="alert" hidden></p>
+        <div class="campo">
+          <label for="cadastrar-usuario">Usuário</label>
+          <input id="cadastrar-usuario" name="username" autocomplete="username"
+                 aria-describedby="cadastrar-usuario-dica cadastrar-usuario-erro">
+          <small class="dica" id="cadastrar-usuario-dica">De 3 a 30 caracteres.</small>
+          <small class="erro-campo" id="cadastrar-usuario-erro" data-erro="username"></small>
+        </div>
+        <div class="campo">
+          <label for="cadastrar-senha">Senha</label>
+          <input id="cadastrar-senha" name="password" type="password" autocomplete="new-password"
+                 aria-describedby="cadastrar-senha-dica cadastrar-senha-erro">
+          <small class="dica" id="cadastrar-senha-dica">Mínimo de 6 caracteres.</small>
+          <small class="erro-campo" id="cadastrar-senha-erro" data-erro="password"></small>
+        </div>
+        <button type="submit" class="botao primario">Criar conta</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- Tela principal: os outros módulos montam suas seções em #conteudo -->
+  <section id="tela-app" class="tela" hidden>
+    <header class="topo">
+      <span class="marca">Galeria Colaborativa</span>
+      <div class="usuario">
+        <span>Olá, <strong id="nome-usuario"></strong></span>
+        <button type="button" id="botao-sair" class="botao">Sair</button>
+      </div>
+    </header>
+    <main id="conteudo"></main>
+  </section>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
