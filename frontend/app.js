@@ -1,12 +1,23 @@
 // Ponto de entrada da interface: login, cadastro e troca de telas.
 
-import { ErroApi, cadastrar, entrar, salvarSessao, sessaoAtual } from "./api.js";
+import {
+  EVENTO_SESSAO_EXPIRADA,
+  ErroApi,
+  cadastrar,
+  entrar,
+  limparSessao,
+  salvarSessao,
+  sessaoAtual,
+  validarSessao,
+} from "./api.js";
 import { mostrarAviso } from "./toast.js";
 
 const carregandoInicial = document.getElementById("carregando-inicial");
 const telaAuth = document.getElementById("tela-auth");
 const telaApp = document.getElementById("tela-app");
 const conteudo = document.getElementById("conteudo");
+const nomeUsuario = document.getElementById("nome-usuario");
+const botaoSair = document.getElementById("botao-sair");
 const formEntrar = document.getElementById("form-entrar");
 const formCadastrar = document.getElementById("form-cadastrar");
 const abas = document.querySelectorAll("[data-aba]");
@@ -18,7 +29,10 @@ const SENHA_MIN = 6;
 
 // Troca de telas
 
+let telaAtual = "carregando"; // carregando | auth | app
+
 function mostrarTela(nome) {
+  telaAtual = nome;
   carregandoInicial.hidden = true;
   telaAuth.hidden = nome !== "auth";
   telaApp.hidden = nome !== "app";
@@ -131,13 +145,64 @@ async function aoEnviar(evento, form, acao) {
 // Tela principal
 
 function abrirApp() {
+  nomeUsuario.textContent = sessaoAtual()?.usuario ?? "";
   mostrarTela("app");
   iniciarApp();
 }
 
 // Ponto de montagem das funcionalidades da tela principal (galeria, histórico...)
-export function iniciarApp() {
+function iniciarApp() {
   conteudo.innerHTML = '<p class="placeholder">Galeria em breve.</p>';
+}
+
+// Desmonta o que iniciarApp() montou (timers, object URLs...)
+function encerrarApp() {
+  conteudo.replaceChildren();
+}
+
+function voltarParaLogin() {
+  encerrarApp();
+  nomeUsuario.textContent = "";
+  mostrarTela("auth");
+  trocarAba("entrar");
+}
+
+// O botão Sair só limpa a sessão local: a API ainda não tem POST /auth/logout
+// (Membro 5). Quando a rota existir, basta chamá-la aqui antes de limpar.
+function sair() {
+  limparSessao();
+  voltarParaLogin();
+  mostrarAviso("Você saiu da sua conta.", "info");
+}
+
+// Disparado pelo api.js quando a API responde 401 para um token salvo.
+function aoExpirarSessao() {
+  if (telaAtual === "auth") return; // várias requisições podem falhar juntas
+  voltarParaLogin();
+  mostrarAviso("Sua sessão expirou. Entre novamente.", "erro");
+}
+
+// Ao abrir ou recarregar a página, confere se o token salvo ainda vale.
+async function restaurarSessao() {
+  if (!sessaoAtual()) {
+    mostrarTela("auth");
+    return;
+  }
+  try {
+    await validarSessao();
+    abrirApp();
+  } catch (erro) {
+    if (erro instanceof ErroApi && erro.status === 0) {
+      // Servidor fora do ar: mantém a sessão e abre o app; as telas mostram
+      // o erro de conexão e se recuperam quando a Galeria voltar.
+      abrirApp();
+      mostrarAviso(erro.mensagem, "erro");
+    } else if (telaAtual !== "auth") {
+      // 401 já foi tratado pelo evento de sessão expirada
+      limparSessao();
+      mostrarTela("auth");
+    }
+  }
 }
 
 // Inicialização
@@ -145,9 +210,7 @@ export function iniciarApp() {
 abas.forEach((botao) => botao.addEventListener("click", () => trocarAba(botao.dataset.aba)));
 formEntrar.addEventListener("submit", (e) => aoEnviar(e, formEntrar, "entrar"));
 formCadastrar.addEventListener("submit", (e) => aoEnviar(e, formCadastrar, "cadastrar"));
+botaoSair.addEventListener("click", sair);
+window.addEventListener(EVENTO_SESSAO_EXPIRADA, aoExpirarSessao);
 
-if (sessaoAtual()) {
-  abrirApp();
-} else {
-  mostrarTela("auth");
-}
+restaurarSessao();
