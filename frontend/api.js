@@ -159,3 +159,9 @@ export function enviarImagem(arquivo) {
   form.append("file", arquivo, arquivo.name);
   return requisicao("/images", { metodo: "POST", form });
 }
+
+// <img src> não envia o header Authorization: a miniatura vem por fetch e
+// vira um blob, que a tela exibe com URL.createObjectURL.
+export function baixarMiniatura(urlMiniatura) {
+  return requisicao(urlMiniatura, { formato: "blob" });
+}
