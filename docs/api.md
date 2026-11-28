@@ -28,12 +28,29 @@ imagem corrompida (repassado do Processamento) · `502` falha inesperada no Proc
 `503` Processamento indisponível
 
 ### GET /images
-Lista as imagens de todos os usuários. `200`:
+Lista as imagens de todos os usuários, mais recentes primeiro por padrão. Parâmetros opcionais:
+
+| Parâmetro | Valores | Padrão | Descrição |
+|---|---|---:|---|
+| `autor` | nome de usuário | — | Filtra pelo nome exato do autor. |
+| `ordem` | `data_desc`, `data_asc` | `data_desc` | Ordena pela data do envio, da mais recente ou da mais antiga. |
+| `limit` | inteiro maior que 0 | `100` | Número máximo de imagens retornadas. |
+| `offset` | inteiro maior ou igual a 0 | `0` | Número de imagens a ignorar para paginar os resultados. |
+
+Os filtros e a ordenação são aplicados antes da paginação. Exemplo:
+
+```bash
+curl 'localhost:8001/images?autor=ana&ordem=data_asc&limit=20&offset=0' \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+`200`:
 ```json
 [{"id": "32fe5d7c-...", "autor": "ana", "data": "2026-11-17T01:50:00",
+  "nome": "foto.png", "tamanho": 1949,
   "url_miniatura": "/images/32fe5d7c-.../thumbnail"}]
 ```
-`401` sem token
+`401` sem token · `422` valor inválido para `ordem`, `limit` ou `offset`
 
 ### GET /images/{id}/thumbnail
 `200` imagem `image/jpeg` · `401` · `404` imagem não existe ou arquivo não está mais no disco
@@ -43,9 +60,10 @@ Lista as imagens de todos os usuários. `200`:
 arquivo não está mais no disco
 
 ### GET /history
-Só os uploads do usuário logado. `200`:
+Retorna somente os uploads do usuário autenticado, ordenados do mais recente para o mais antigo. Cada item inclui a URL da miniatura:
 ```json
-[{"usuario": "ana", "image_id": "32fe5d7c-...", "nome": "foto.png", "data": "2026-11-17T01:50:00"}]
+[{"usuario": "ana", "image_id": "32fe5d7c-...", "nome": "foto.png",
+  "data": "2026-11-17T01:50:00", "url_miniatura": "/images/32fe5d7c-.../thumbnail"}]
 ```
 `401` sem token
 
