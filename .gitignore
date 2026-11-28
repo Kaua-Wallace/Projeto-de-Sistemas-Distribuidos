@@ -4,3 +4,4 @@ __pycache__/
 storage/originals/*
 storage/thumbnails/*
 !storage/*/.gitkeep
+storage/galeria.db*

@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from common import log_evento, middleware_logs
+from gallery_service import db
 from contextlib import asynccontextmanager
 from starlette.concurrency import run_in_threadpool
 
@@ -53,10 +54,13 @@ def usuario_para_log(request: Request) -> str | None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.processing_client = criar_cliente_processamento()
+    db.iniciar(STORAGE / "galeria.db")
+    carregar_estado()
     try:
         yield
     finally:
         await app.state.processing_client.aclose()
+        db.fechar()
 
 TIPOS_ACEITOS = {
     "image/jpeg": "jpg",
@@ -88,6 +92,21 @@ tokens = {}  # token -> username
 imagens = {}  # id -> metadados da imagem
 historico = []  # uploads: {usuario, image_id, nome, data}
 
+tokens_expira = {}  # token -> instante de expiração (epoch)
+
+TOKEN_TTL_SEGUNDOS = int(os.getenv("TOKEN_TTL_SEGUNDOS", str(24 * 3600)))
+
+
+def carregar_estado() -> None:
+    """Repovoa a memória a partir do SQLite (chamado na inicialização)."""
+    u, t, i, h = db.carregar(time.time())
+    usuarios.clear(); usuarios.update(u)
+    tokens.clear(); tokens_expira.clear()
+    for token, (usuario, expira) in t.items():
+        tokens[token] = usuario
+        tokens_expira[token] = expira
+    imagens.clear(); imagens.update(i)
+    historico[:] = h
 
 class Credenciais(BaseModel):
     username: str
@@ -120,7 +139,15 @@ def verificar_senha(senha: str, armazenado: str | None) -> bool:
 
 def usuario_do_token(token: str) -> str | None:
     """Resolve um token de sessão para o nome de usuário, se ainda válido."""
-    return tokens.get(token)
+    usuario = tokens.get(token)
+    if usuario is None:
+        return None
+    if tokens_expira.get(token, 0) < time.time():
+        tokens.pop(token, None)
+        tokens_expira.pop(token, None)
+        db.remover_token(token)
+        return None
+    return usuario
 
 
 def usuario_logado(authorization: str = Header(default="")) -> str:
@@ -140,7 +167,10 @@ def cadastrar(c: Credenciais):
         raise HTTPException(422, "username: 3-30 caracteres; password: mínimo 6")
     if c.username in usuarios:
         raise HTTPException(409, "Usuário já existe")
-    usuarios[c.username] = hash_senha(c.password)
+    senha_hash = hash_senha(c.password)
+    if not db.salvar_usuario(c.username, senha_hash):
+        raise HTTPException(409, "Usuário já existe")
+    usuarios[c.username] = senha_hash
     return {"username": c.username}
 
 
@@ -150,9 +180,21 @@ def login(c: Credenciais):
         log_evento("login_falhou", servico="gallery", usuario=c.username)
         raise HTTPException(401, "Credenciais inválidas")
     token = secrets.token_urlsafe(24)
+    expira = time.time() + TOKEN_TTL_SEGUNDOS
     tokens[token] = c.username
+    tokens_expira[token] = expira
+    db.salvar_token(token, c.username, expira)
     return {"token": token}
 
+@app.post("/auth/logout", status_code=204)
+def logout(
+    authorization: str = Header(default=""),
+    _: str = Depends(usuario_logado),
+):
+    token = authorization.removeprefix("Bearer ").strip()
+    tokens.pop(token, None)
+    tokens_expira.pop(token, None)
+    db.remover_token(token)
 
 # Imagens
 
@@ -278,7 +320,7 @@ async def upload(
 
     nome = os.path.basename(file.filename or img_id)
 
-    imagens[img_id] = {
+    registro = {
         "id": img_id,
         "autor": usuario,
         "data": agora,
@@ -290,12 +332,16 @@ async def upload(
         "url_miniatura": f"/images/{img_id}/thumbnail",
     }
 
-    historico.append({
+    envio = {
         "usuario": usuario,
         "image_id": img_id,
         "nome": nome,
         "data": agora
-    })
+    }
+
+    await run_in_threadpool(db.salvar_imagem, registro, envio)
+    imagens[img_id] = registro
+    historico.append(envio)
 
     log_evento(
         "upload_concluido",
