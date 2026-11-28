@@ -158,6 +158,79 @@ def test_fluxo_completo(gal):
     assert historico[0]["image_id"] == iid
 
 
+def test_listagem_filtra_ordena_e_pagina_imagens(gal):
+    headers = logar(gal)
+    imagens = [
+        ("ana-antiga", "ana", "2026-01-01T10:00:00"),
+        ("bia-meio", "bia", "2026-01-02T10:00:00"),
+        ("ana-nova", "ana", "2026-01-03T10:00:00"),
+    ]
+    for img_id, autor, data in imagens:
+        galeria.imagens[img_id] = {
+            "id": img_id,
+            "autor": autor,
+            "data": data,
+            "nome": f"{img_id}.png",
+            "tamanho": 123,
+            "url_miniatura": f"/images/{img_id}/thumbnail",
+        }
+
+    ascendente = gal.get(
+        "/images?autor=ana&ordem=data_asc",
+        headers=headers,
+    ).json()
+    assert [imagem["id"] for imagem in ascendente] == ["ana-antiga", "ana-nova"]
+
+    descendente = gal.get("/images?ordem=data_desc", headers=headers).json()
+    assert [imagem["id"] for imagem in descendente] == [
+        "ana-nova", "bia-meio", "ana-antiga"
+    ]
+
+    pagina = gal.get(
+        "/images?ordem=data_asc&limit=1&offset=1",
+        headers=headers,
+    ).json()
+    assert [imagem["id"] for imagem in pagina] == ["bia-meio"]
+    assert pagina[0]["nome"] == "bia-meio.png"
+    assert pagina[0]["tamanho"] == 123
+
+    sem_resultados = gal.get("/images?autor=desconhecido", headers=headers).json()
+    assert sem_resultados == []
+
+
+def test_historico_ordenado_com_url_e_isolado_por_usuario(gal):
+    headers = logar(gal)
+    galeria.historico.extend([
+        {
+            "usuario": "ana",
+            "image_id": "ana-antiga",
+            "nome": "antiga.png",
+            "data": "2026-01-01T10:00:00",
+        },
+        {
+            "usuario": "bia",
+            "image_id": "bia-imagem",
+            "nome": "bia.png",
+            "data": "2026-01-03T10:00:00",
+        },
+        {
+            "usuario": "ana",
+            "image_id": "ana-nova",
+            "nome": "nova.png",
+            "data": "2026-01-02T10:00:00",
+        },
+    ])
+
+    historico = gal.get("/history", headers=headers).json()
+    assert [envio["image_id"] for envio in historico] == [
+        "ana-nova", "ana-antiga"
+    ]
+    assert [envio["url_miniatura"] for envio in historico] == [
+        "/images/ana-nova/thumbnail",
+        "/images/ana-antiga/thumbnail",
+    ]
+
+
 def test_upload_inclui_usuario_no_log_do_processamento(gal, monkeypatch):
     eventos = []
 
