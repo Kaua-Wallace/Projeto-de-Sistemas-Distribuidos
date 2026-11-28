@@ -28,9 +28,20 @@ export function iniciarGaleria(container) {
         <h2 id="titulo-galeria">Galeria</h2>
         <span class="contador"></span>
       </div>
+      <form class="galeria-filtros" role="search">
+        <label for="filtro-autor">Filtrar por autor</label>
+        <input id="filtro-autor" name="autor" type="search" maxlength="30"
+               placeholder="Nome do usuário">
+        <label for="ordem-galeria">Ordenar por data</label>
+        <select id="ordem-galeria" name="ordem">
+          <option value="data_desc">Mais recentes</option>
+          <option value="data_asc">Mais antigas</option>
+        </select>
+        <button class="botao" type="submit">Filtrar</button>
+      </form>
       <p class="faixa-conexao" role="status" hidden></p>
       <p class="galeria-estado">Carregando imagens…</p>
-      <ul class="grade"></ul>
+      <div class="grupos-dia"></div>
     </section>
     <dialog class="previa" aria-labelledby="previa-titulo">
       <div class="previa-corpo">
@@ -45,7 +56,10 @@ export function iniciarGaleria(container) {
     </dialog>`;
 
   estado = {
-    grade: container.querySelector(".grade"),
+    grupos: container.querySelector(".grupos-dia"),
+    filtros: container.querySelector(".galeria-filtros"),
+    filtroAutor: container.querySelector("#filtro-autor"),
+    ordem: container.querySelector("#ordem-galeria"),
     contador: container.querySelector(".contador"),
     textoEstado: container.querySelector(".galeria-estado"),
     faixa: container.querySelector(".faixa-conexao"),
@@ -60,7 +74,12 @@ export function iniciarGaleria(container) {
     idNaPrevia: null,
   };
   ligarPrevia(estado);
-  estado.grade.addEventListener("click", (evento) => {
+  estado.filtros.addEventListener("submit", (evento) => {
+    evento.preventDefault();
+    atualizarGaleria();
+  });
+  estado.ordem.addEventListener("change", atualizarGaleria);
+  estado.grupos.addEventListener("click", (evento) => {
     const card = evento.target.closest(".card");
     if (card) abrirPrevia(card.dataset.id);
   });
@@ -93,14 +112,14 @@ function revogarMiniatura(atual, id) {
 // Polling: agenda a próxima busca, mas não gasta rede com a aba escondida.
 function agendarProxima(atual) {
   clearTimeout(atual.timer);
-  if (document.hidden) return;
+  if (document.hidden || document.querySelector("#painel-galeria")?.hidden) return;
   atual.timer = setTimeout(atualizarGaleria, INTERVALO_ATUALIZACAO_MS);
 }
 
 function aoMudarVisibilidade() {
   if (!estado) return;
   if (document.hidden) clearTimeout(estado.timer);
-  else atualizarGaleria(); // voltou para a aba: atualiza na hora
+  else if (!document.querySelector("#painel-galeria")?.hidden) atualizarGaleria();
 }
 
 // Busca a lista na API e sincroniza a grade. Chamadas simultâneas são
@@ -114,7 +133,10 @@ export async function atualizarGaleria() {
   }
   atual.buscando = true;
   try {
-    const lista = await listarImagens();
+    const lista = await listarImagens({
+      autor: atual.filtroAutor.value,
+      ordem: atual.ordem.value,
+    });
     if (atual !== estado) return; // a galeria foi desmontada enquanto esperava
     atual.faixa.hidden = true;
     atual.carregouUmaVez = true;
@@ -141,8 +163,7 @@ export async function atualizarGaleria() {
 }
 
 function renderizar(atual, lista) {
-  // Mais recentes primeiro (datas ISO comparam como texto)
-  const ordenadas = [...lista].sort((a, b) => String(b.data).localeCompare(String(a.data)));
+  const ordenadas = lista;
   const ids = new Set(ordenadas.map((img) => img.id));
 
   // Remove o que não existe mais
@@ -157,7 +178,8 @@ function renderizar(atual, lista) {
   }
 
   // Adiciona as novas e mantém a ordem sem recriar os cards existentes
-  ordenadas.forEach((img, indice) => {
+  const secoes = new Map();
+  ordenadas.forEach((img) => {
     atual.imagens.set(img.id, img);
     let card = atual.cards.get(img.id);
     if (!card) {
@@ -167,15 +189,44 @@ function renderizar(atual, lista) {
     } else if (card.dataset.miniatura === "sem-conexao") {
       carregarMiniatura(atual, img, card); // tenta de novo quando a rede volta
     }
-    if (atual.grade.children[indice] !== card) {
-      atual.grade.insertBefore(card, atual.grade.children[indice] ?? null);
+    const dia = String(img.data || "").slice(0, 10) || "sem-data";
+    let secao = secoes.get(dia);
+    if (!secao) {
+      secao = document.createElement("section");
+      secao.className = "grupo-dia";
+      const titulo = document.createElement("h3");
+      titulo.className = "grupo-dia-titulo";
+      titulo.textContent = formatarDia(dia);
+      const grade = document.createElement("ul");
+      grade.className = "grade";
+      secao.append(titulo, grade);
+      secoes.set(dia, secao);
     }
+    secao.querySelector(".grade").append(card);
   });
+  atual.grupos.replaceChildren(...secoes.values());
 
   const total = ordenadas.length;
   atual.contador.textContent = total === 1 ? "1 imagem" : `${total} imagens`;
-  atual.textoEstado.textContent = "Nenhuma imagem ainda. Envie a primeira!";
+  atual.textoEstado.textContent = atual.filtroAutor.value.trim()
+    ? `Nenhuma imagem encontrada para "${atual.filtroAutor.value.trim()}".`
+    : "Nenhuma imagem ainda. Envie a primeira!";
   atual.textoEstado.hidden = total > 0;
+}
+
+const formatoDia = new Intl.DateTimeFormat("pt-BR", {
+  weekday: "long",
+  day: "numeric",
+  month: "long",
+  year: "numeric",
+});
+
+function formatarDia(dia) {
+  if (dia === "sem-data") return "Data desconhecida";
+  const data = new Date(`${dia}T12:00:00`);
+  if (Number.isNaN(data.getTime())) return dia;
+  const formatado = formatoDia.format(data);
+  return formatado.charAt(0).toLocaleUpperCase("pt-BR") + formatado.slice(1);
 }
 
 // Cards montados com textContent: nomes de usuário e de arquivo nunca viram HTML
