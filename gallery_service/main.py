@@ -1,10 +1,11 @@
-
 """Serviço de Galeria (porta 8001): autenticação, metadados, armazenamento e histórico."""
 
 import hashlib
 import hmac
 import os
+import re
 import secrets
+import threading
 import time
 import uuid
 from datetime import datetime
@@ -12,10 +13,11 @@ from pathlib import Path
 
 import httpx
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from common import log_evento, middleware_logs
+from common.constantes import TAMANHO_MAX, TIPOS_ACEITOS
 from contextlib import asynccontextmanager
 from starlette.concurrency import run_in_threadpool
 
@@ -30,6 +32,14 @@ RAIZ = Path(__file__).resolve().parents[1]
 STORAGE = Path(
     os.getenv("STORAGE_ROOT", RAIZ / "storage")
 )
+
+# define as regras de validacao dos usernames e os limites de segurança do armazenamento
+USERNAME_REGEX = re.compile(r"[A-Za-z0-9_.-]{3,30}")
+MARGEM_MULTIPART = 64 * 1024
+TAMANHO_MAX_NOME = 120
+LOCK_USUARIOS = threading.Lock()  # evita alteraçoes simultaneas conflitantes nos usuarios e nos metadados
+LOCK_METADADOS = threading.Lock()
+
 
 def criar_cliente_processamento():
     """
@@ -57,18 +67,29 @@ async def lifespan(app: FastAPI):
     finally:
         await app.state.processing_client.aclose()
 
-TIPOS_ACEITOS = {
-    "image/jpeg": "jpg",
-    "image/png": "png",
-    "image/gif": "gif",
-    "image/webp": "webp",
+MENSAGENS_PROCESSAMENTO = {
+    413: "Arquivo maior que 5 MB",
+    415: "Tipo de imagem não aceito",
+    422: "Arquivo inválido, corrompido ou diferente do formato declarado",
 }
-TAMANHO_MAX = 5 * 1024 * 1024  # 5 MB
 
 app = FastAPI(
     title="Serviço de Galeria",
     lifespan=lifespan
 )
+
+# rejeita uploads com tamnho declarado acima do limite antes de processar o multipart
+@app.middleware("http")
+async def limitar_tamanho(request, call_next):
+    if request.method == "POST" and request.url.path == "/images":
+        declarado = request.headers.get("content-length", "").strip()
+        if declarado.isdigit() and int(declarado) > TAMANHO_MAX + MARGEM_MULTIPART:
+            return JSONResponse(
+                status_code=413,
+                content={"detail": "Arquivo maior que 5 MB"},
+            )
+    return await call_next(request)
+
 
 @app.middleware("http")
 async def logs_http(request, call_next):
@@ -130,16 +151,70 @@ def usuario_logado(authorization: str = Header(default="")) -> str:
         raise HTTPException(401, "Não autenticado")
     return usuario
 
+# aceita somente usernames dentro do padrao definido e impede nmes iniciados por ponto
+def username_valido(username: str) -> bool:
+    return bool(USERNAME_REGEX.fullmatch(username)) and not username.startswith(".")
+
+# garante que o caminho final permaneça detro da pasta de armazenamento esperada
+def caminho_no_storage(subpasta: str, usuario: str, nome_arquivo: str) -> Path:
+    partes = (usuario, nome_arquivo)
+    if (
+        any(parte in ("", ".", "..") for parte in partes)
+        or any(sep in parte for parte in partes for sep in ("/", "\\"))
+    ):
+        raise HTTPException(422, "Caminho de armazenamento inválido")
+    raiz = (STORAGE / subpasta).resolve()
+    destino = (STORAGE / subpasta / usuario / nome_arquivo).resolve()
+    if destino.parent.parent != raiz:
+        raise HTTPException(422, "Caminho de armazenamento inválido")
+    return destino
+
+# remove componentes de caminho e caracteres inadequados do nome original do arquivo
+def nome_seguro(nome_bruto: str | None, padrao: str) -> str:
+    nome = (nome_bruto or "").replace("\\", "/")
+    nome = os.path.basename(nome)
+    nome = "".join(c for c in nome if c.isprintable()).strip()
+    if nome in ("", ".", ".."):
+        nome = padrao
+    if len(nome) > TAMANHO_MAX_NOME:
+        base, extensao = os.path.splitext(nome)
+        nome = base[: max(1, TAMANHO_MAX_NOME - len(extensao))] + extensao
+    return nome
+
+# gera nomes de exibiçao diferetes para arquivos com o mesmo nome enviados pelo usuario
+def nome_exibicao_unico(usuario: str, nome: str) -> str:
+    existentes = {i["nome"] for i in imagens.values() if i["autor"] == usuario}
+    if nome not in existentes:
+        return nome
+    base, extensao = os.path.splitext(nome)
+    sufixo = re.fullmatch(r"(.+) \(\d+\)", base)
+    if sufixo:
+        base = sufixo.group(1)
+    contador = 2
+    candidato = f"{base} ({contador}){extensao}"
+    while candidato in existentes:
+        contador += 1
+        candidato = f"{base} ({contador}){extensao}"
+    return candidato
+
 
 # Autenticação
 
 @app.post("/auth/register", status_code=201)
 def cadastrar(c: Credenciais):
-    if not (3 <= len(c.username) <= 30) or len(c.password) < 6:
-        raise HTTPException(422, "username: 3-30 caracteres; password: mínimo 6")
-    if c.username in usuarios:
-        raise HTTPException(409, "Usuário já existe")
-    usuarios[c.username] = hash_senha(c.password)
+    if len(c.password) < 6:
+        raise HTTPException(422, "password: mínimo 6 caracteres")
+    if not username_valido(c.username):
+        raise HTTPException(
+            422,
+            "username: 3-30 caracteres, apenas letras, números, '.', '-' e '_', sem iniciar com ponto",
+        )
+    senha_hash = hash_senha(c.password)
+    #mantem a verificaçao e a criaçao do usuario na mesma regiao protegida contra concorrencia
+    with LOCK_USUARIOS:
+        if c.username in usuarios:
+            raise HTTPException(409, "Usuário já existe")
+        usuarios[c.username] = senha_hash
     return {"username": c.username}
 
 
@@ -162,7 +237,7 @@ async def upload(
 ):
 
     # Validação do tipo de arquivo
-    
+
     if file.content_type not in TIPOS_ACEITOS:
         raise HTTPException(
             415,
@@ -244,57 +319,66 @@ async def upload(
 
         codigo = (
             r.status_code
-            if r.status_code in (415, 422)
+            if r.status_code in MENSAGENS_PROCESSAMENTO
             else 502
         )
 
         raise HTTPException(
             codigo,
-            "Falha ao gerar miniatura"
+            MENSAGENS_PROCESSAMENTO.get(codigo, "Falha ao gerar miniatura")
         )
 
     # Armazenamento dos arquivos
 
     img_id = str(uuid.uuid4())
 
-    pasta_o = STORAGE / "originals" / usuario
-    pasta_t = STORAGE / "thumbnails" / usuario
-
-    caminho_o = pasta_o / f"{img_id}.{TIPOS_ACEITOS[file.content_type]}"
-    caminho_t = pasta_t / f"{img_id}.jpg"
-
-    await run_in_threadpool(
-        persistir_arquivos,
-        caminho_o,
-        caminho_t,
-        dados,
-        r.content,
+    caminho_o = caminho_no_storage(
+        "originals", usuario, f"{img_id}.{TIPOS_ACEITOS[file.content_type]}"
     )
+    caminho_t = caminho_no_storage("thumbnails", usuario, f"{img_id}.jpg")
+
+    try:
+        await run_in_threadpool(
+            persistir_arquivos,
+            caminho_o,
+            caminho_t,
+            dados,
+            r.content,
+        )
+    except OSError as erro:
+        log_evento(
+            "falha_armazenamento",
+            servico="gallery",
+            usuario=usuario,
+            erro=repr(erro)
+        )
+        raise HTTPException(500, "Falha ao gravar a imagem no armazenamento") from erro
 
     # Registro dos metadados
 
-    agora = datetime.now().isoformat(timespec="seconds")
+    nome_solicitado = nome_seguro(file.filename, img_id)
 
-    nome = os.path.basename(file.filename or img_id)
-
-    imagens[img_id] = {
-        "id": img_id,
-        "autor": usuario,
-        "data": agora,
-        "nome": nome,
-        "tipo": file.content_type,
-        "tamanho": len(dados),
-        "caminho_original": str(caminho_o),
-        "caminho_miniatura": str(caminho_t),
-        "url_miniatura": f"/images/{img_id}/thumbnail",
-    }
-
-    historico.append({
-        "usuario": usuario,
-        "image_id": img_id,
-        "nome": nome,
-        "data": agora
-    })
+    try:
+        metadados = await run_in_threadpool(
+            registrar_upload,
+            img_id,
+            usuario,
+            nome_solicitado,
+            file.content_type,
+            len(dados),
+            caminho_o,
+            caminho_t,
+        )
+    except Exception as erro:
+        await run_in_threadpool(remover_arquivos, caminho_o, caminho_t)
+        log_evento(
+            "falha_registro",
+            servico="gallery",
+            usuario=usuario,
+            id=img_id,
+            erro=repr(erro)
+        )
+        raise HTTPException(500, "Falha ao registrar a imagem") from erro
 
     log_evento(
         "upload_concluido",
@@ -304,31 +388,125 @@ async def upload(
         tamanho=len(dados)
     )
 
-    return publica(imagens[img_id])
+    return publica(metadados)
 
 def publica(img: dict) -> dict:
     """Remove os caminhos internos do disco antes de responder ao cliente."""
     return {k: v for k, v in img.items() if not k.startswith("caminho")}
 
+# registra os metadados e o historico de forma sincronizada entre uploads simultaneos
+def registrar_upload(
+    img_id: str,
+    usuario: str,
+    nome_solicitado: str,
+    tipo: str,
+    tamanho: int,
+    caminho_original: Path,
+    caminho_miniatura: Path,
+) -> dict:
+    with LOCK_METADADOS:
+        nome = nome_exibicao_unico(usuario, nome_solicitado)
+        agora = datetime.now().isoformat(timespec="seconds")
+        metadados = {
+            "id": img_id,
+            "autor": usuario,
+            "data": agora,
+            "nome": nome,
+            "tipo": tipo,
+            "tamanho": tamanho,
+            "caminho_original": str(caminho_original),
+            "caminho_miniatura": str(caminho_miniatura),
+            "url_miniatura": f"/images/{img_id}/thumbnail",
+        }
+        imagens[img_id] = metadados
+        try:
+            historico.append({
+                "usuario": usuario,
+                "image_id": img_id,
+                "nome": nome,
+                "data": agora,
+            })
+        except BaseException:
+            imagens.pop(img_id, None)
+            raise
+        return metadados
 
+
+def _remover_silencioso(caminho: Path) -> None:
+    try:
+        os.remove(caminho)
+    except FileNotFoundError:
+        pass
+    except OSError as erro:
+        log_evento(
+            "falha_limpeza",
+            servico="gallery",
+            caminho=str(caminho),
+            erro=repr(erro)
+        )
+
+# remove os arquivos relacionados a um upload quando ocorre uma falha no processo
+def remover_arquivos(*caminhos: Path) -> None:
+    for caminho in caminhos:
+        _remover_silencioso(caminho)
+
+
+def _caminho_temporario(destino: Path) -> Path:
+    return destino.with_name(f".{destino.name}.{uuid.uuid4().hex}.tmp")
+
+
+def _gravar_exclusivo(caminho: Path, conteudo: bytes, criados: list) -> None:
+    with open(caminho, "xb") as arquivo:
+        criados.append(caminho)
+        arquivo.write(conteudo)
+        arquivo.flush()
+        os.fsync(arquivo.fileno())
+
+# grava os arquivos temporariamente e publica os destinos somente apos concluir as gravaçoes
 def persistir_arquivos(
     caminho_original: Path,
     caminho_miniatura: Path,
     original: bytes,
     miniatura: bytes,
 ) -> None:
-    caminho_original.parent.mkdir(parents=True, exist_ok=True)
-    caminho_miniatura.parent.mkdir(parents=True, exist_ok=True)
-    caminho_original.write_bytes(original)
-    caminho_miniatura.write_bytes(miniatura)
+    temporarios: list[Path] = []
+    publicados: list[Path] = []
+    try:
+        caminho_original.parent.mkdir(parents=True, exist_ok=True)
+        caminho_miniatura.parent.mkdir(parents=True, exist_ok=True)
+
+        temp_original = _caminho_temporario(caminho_original)
+        temp_miniatura = _caminho_temporario(caminho_miniatura)
+
+        _gravar_exclusivo(temp_original, original, temporarios)
+        _gravar_exclusivo(temp_miniatura, miniatura, temporarios)
+
+        os.replace(temp_original, caminho_original)
+        temporarios.remove(temp_original)
+        publicados.append(caminho_original)
+
+        os.replace(temp_miniatura, caminho_miniatura)
+        temporarios.remove(temp_miniatura)
+        publicados.append(caminho_miniatura)
+    except BaseException:
+        for temporario in temporarios:
+            _remover_silencioso(temporario)
+        for publicado in publicados:
+            _remover_silencioso(publicado)
+        raise
 
 
 @app.get("/images")
 def listar(_: str = Depends(usuario_logado)):
     return [
-        {"id": i["id"], "autor": i["autor"], "data": i["data"],
-         "url_miniatura": i["url_miniatura"]}
-        for i in imagens.values()
+        {
+            "id": i["id"],
+            "autor": i["autor"],
+            "data": i["data"],
+            "nome": i["nome"],
+            "url_miniatura": i["url_miniatura"],
+        }
+        for i in list(imagens.values())
     ]
 
 

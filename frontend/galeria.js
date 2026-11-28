@@ -5,6 +5,8 @@ import { mostrarAviso } from "./toast.js";
 
 // Atualização automática: outra pessoa envia e a imagem aparece sem F5.
 const INTERVALO_ATUALIZACAO_MS = 5000;
+// define o intervalo utilizado para agrupar falhas de carregamento das miniaturas
+const ESPERA_AGRUPAR_FALHAS_MS = 400;
 
 const formatoData = new Intl.DateTimeFormat("pt-BR", {
   dateStyle: "short",
@@ -56,6 +58,8 @@ export function iniciarGaleria(container) {
     buscando: false,
     pendente: false,
     timer: null,
+    falhasPendentes: 0,
+    timerFalhas: null,
     dialogo: container.querySelector(".previa"),
     idNaPrevia: null,
   };
@@ -71,6 +75,7 @@ export function iniciarGaleria(container) {
 export function pararGaleria() {
   if (!estado) return;
   clearTimeout(estado.timer);
+  clearTimeout(estado.timerFalhas);
   document.removeEventListener("visibilitychange", aoMudarVisibilidade);
   if (estado.dialogo.open) estado.dialogo.close();
   revogarTodas(estado);
@@ -221,6 +226,24 @@ function criarCard(img) {
   return card;
 }
 
+// Vários cards falhando juntos geram um único aviso, em vez de um toast por imagem.
+function avisarFalhaMiniatura(atual) {
+  atual.falhasPendentes += 1;
+  if (atual.timerFalhas) return;
+  atual.timerFalhas = setTimeout(() => {
+    const total = atual.falhasPendentes;
+    atual.falhasPendentes = 0;
+    atual.timerFalhas = null;
+    if (atual !== estado) return;
+    mostrarAviso(
+      total === 1
+        ? "Não foi possível carregar uma das miniaturas da galeria."
+        : `Não foi possível carregar ${total} miniaturas da galeria.`,
+      "erro",
+    );
+  }, ESPERA_AGRUPAR_FALHAS_MS);
+}
+
 // Cada miniatura é baixada uma única vez e fica em cache até sair da lista
 // ou a galeria ser desmontada.
 async function carregarMiniatura(atual, img, card) {
@@ -233,15 +256,19 @@ async function carregarMiniatura(atual, img, card) {
     if (atual !== estado || !atual.cards.has(img.id)) return; // card ou galeria já foram descartados
     const url = URL.createObjectURL(blob);
     atual.miniaturas.set(img.id, url);
-    imagem.onerror = () => mostrarPlaceholder(card, "falhou");
+    imagem.onerror = () => {
+      mostrarPlaceholder(card, "falhou");
+      if (atual === estado) avisarFalhaMiniatura(atual);
+    };
     imagem.src = url;
     imagem.hidden = false;
     moldura.classList.remove("carregando", "falhou");
     moldura.querySelector(".placeholder-miniatura")?.remove();
     card.dataset.miniatura = "ok";
   } catch (erro) {
-    if (atual !== estado) return;
+    if (atual !== estado || erro.status === 401) return;
     mostrarPlaceholder(card, erro.status === 0 ? "sem-conexao" : "falhou");
+    if (erro.status !== 0) avisarFalhaMiniatura(atual);
   }
 }
 

@@ -12,6 +12,7 @@ import {
   validarSessao,
 } from "./api.js";
 import { mostrarAviso } from "./toast.js";
+import { mensagemDeFalhaDeUpload } from "./erros.js";
 import { montarUpload } from "./upload.js";
 import { atualizarGaleria, iniciarGaleria, pararGaleria } from "./galeria.js";
 
@@ -163,7 +164,7 @@ function iniciarApp() {
 }
 
 // Envia os arquivos em paralelo (um POST /images por arquivo) e avisa o
-// resultado de cada um com a mensagem do servidor (413, 415, 422, 502, 503...).
+// resultado de cada um com a mensagem amigável para o status (413, 415, 422, 502, 503...).
 async function enviarArquivos(arquivos) {
   const resultados = await Promise.allSettled(arquivos.map((a) => enviarImagem(a)));
   let enviados = 0;
@@ -174,8 +175,7 @@ async function enviarArquivos(arquivos) {
       mostrarAviso(`"${nome}" enviada.`, "sucesso");
     } else if (resultado.reason?.status !== 401) {
       // 401 já leva ao login; os demais erros aparecem por arquivo
-      const motivo = resultado.reason?.mensagem ?? "erro inesperado";
-      mostrarAviso(`Falha ao enviar "${nome}": ${motivo}`, "erro");
+      mostrarAviso(mensagemDeFalhaDeUpload(nome, resultado.reason), "erro");
     }
   });
   if (enviados) atualizarGaleria();

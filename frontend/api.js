@@ -2,6 +2,8 @@
 // A interface é servida pela própria Galeria em /app, então as rotas da API
 // ficam na mesma origem e são chamadas com caminhos absolutos ("/images").
 
+import { mensagemDeErro, mensagemPadraoDoStatus } from "./erros.js";
+
 const CHAVE_SESSAO = "galeria.sessao";
 
 // Sessão no navegador. sessionStorage: sobrevive ao F5, some ao fechar a aba.
@@ -98,16 +100,14 @@ export async function requisicao(
   try {
     resposta = await fetch(caminho, { method: metodo, headers, body });
   } catch {
-    throw new ErroApi(
-      0,
-      "Não foi possível conectar ao servidor. Verifique se a Galeria está no ar.",
-    );
+    throw new ErroApi(0, mensagemDeErro({ status: 0 }));
   }
 
   if (!resposta.ok) {
     const detalhe = await lerDetalhe(resposta);
+    // prioriza o detalhe retornado pela API e utiliza uma mensagem padrao quando ele nao existe
     const mensagem =
-      textoDoDetalhe(detalhe) || `Erro ${resposta.status} no servidor.`;
+      textoDoDetalhe(detalhe) || mensagemPadraoDoStatus(resposta.status);
 
     // Token inválido ou expirado: derruba a sessão e avisa a interface
     // (o app.js volta para a tela de login).
