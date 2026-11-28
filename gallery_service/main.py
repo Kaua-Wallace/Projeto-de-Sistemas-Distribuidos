@@ -9,6 +9,7 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
+from typing import Literal
 
 import httpx
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
@@ -324,11 +325,24 @@ def persistir_arquivos(
 
 
 @app.get("/images")
-def listar(_: str = Depends(usuario_logado)):
+def listar(
+    autor: str | None = None,
+    ordem: Literal["data_desc", "data_asc"] = "data_desc",
+    _: str = Depends(usuario_logado),
+):
+    selecionadas = (
+        imagem for imagem in imagens.values()
+        if autor is None or imagem["autor"] == autor
+    )
+    ordenadas = sorted(
+        selecionadas,
+        key=lambda imagem: imagem["data"],
+        reverse=ordem == "data_desc",
+    )
     return [
         {"id": i["id"], "autor": i["autor"], "data": i["data"],
          "url_miniatura": i["url_miniatura"]}
-        for i in imagens.values()
+        for i in ordenadas
     ]
 
 
