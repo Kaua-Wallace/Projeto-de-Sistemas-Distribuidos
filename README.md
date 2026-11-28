@@ -1,6 +1,6 @@
 # Galeria Colaborativa de Imagens
 
-Projeto de Sistemas Distribuídos — **Entrega 2 (Comunicação e Core)**.
+Projeto de Sistemas Distribuídos — **Entrega 3 (Interface e Persistência)**.
 Repositório de imagens colaborativo: o usuário se cadastra, envia fotos (`multipart/form-data`), lista as imagens (autor, data e miniatura), vê a prévia e baixa o original. O sistema guarda um histórico de uploads.
 
 **Estado atual:** os dois microsserviços rodam e se comunicam de verdade. Upload com autenticação, geração de miniatura pelo Processamento, listagem, prévia, download e histórico funcionam via `curl`. Os dois serviços atendem requisições concorrentes e exibem logs estruturados em JSON.
@@ -28,7 +28,7 @@ flowchart LR
 
 **Como um chama o outro:** no upload, a Galeria valida o arquivo e envia a imagem ao Processamento (`POST /internal/thumbnail`). O Processamento devolve a miniatura em JPEG, e a Galeria grava original e miniatura em disco, registra os metadados e o histórico. Se o Processamento estiver fora do ar, o upload falha com `503`.
 
-## Estado central (Galeria, em memória)
+## ## Estado central (Galeria, SQLite + cache em memória)
 
 | Estrutura | Conteúdo |
 |---|---|
@@ -37,7 +37,7 @@ flowchart LR
 | `imagens` | `id → {id, autor, data, nome, tipo, tamanho, caminho_original, caminho_miniatura, url_miniatura}` |
 | `historico` | lista de uploads `{usuario, image_id, nome, data}` |
 
-Os metadados ficam em memória; reiniciar ou recriar o contêiner da Galeria zera usuários, tokens, metadados e histórico (decisão simplificadora; persistência fica para as próximas entregas). Os arquivos em `storage/` continuam no disco por causa do volume do Docker, mas não aparecem na listagem sem os metadados em memória. Os caminhos em disco nunca são devolvidos ao cliente.
+Tudo é gravado no SQLite (`storage/galeria.db`) a cada alteração e recarregado na inicialização; os dicionários em memória funcionam como cache. Reiniciar a Galeria **não** perde usuários, metadados nem histórico. Os tokens expiram em 24 h (`TOKEN_TTL_SEGUNDOS`) e podem ser encerrados com `POST /auth/logout`.
 
 **Armazenamento em pastas por usuário:**
 ```
@@ -76,6 +76,10 @@ python scripts/teste_concorrencia.py --total 30
 
 Resultado obtido no QA desta entrega: `Uploads solicitados: 30 · Sucessos: 30 · Falhas: 0 · Tempo total: 0.60 segundos`.
 
+**Limitações conhecidas**
+
+O uvicorn utiliza 1 worker, pois o estado é mantido em memória e dividido entre processos poderia causar inconsistências. Além disso, qualquer usuário logado vê todas as imagens, por ser uma galeria colaborativa.
+
 ## Logs
 
 Cada requisição gera uma linha JSON no console (`stdout`) com `servico`, `metodo`, `rota`, `status`, `duracao_ms` e `usuario`. Na Galeria, o usuário é resolvido pelo token; ao chamar o Processamento, a Galeria encaminha `X-User-Context` apenas para correlacionar os logs (não é um mecanismo de autenticação). Eventos de negócio também são registrados: `upload_concluido`, `chamada_processamento`, `falha_miniatura`, `login_falhou`, `thumbnail_entrada` e `thumbnail_resultado`.
@@ -101,6 +105,7 @@ Trecho real de um upload (saída dos dois serviços):
 | GET | `/health` | health-check |
 | POST | `/auth/register` | cadastro |
 | POST | `/auth/login` | login (devolve token) |
+| POST | `/auth/logout` | encerra o token atual (204) |
 | POST | `/images` | upload (`multipart/form-data`, campo `file`) |
 | GET | `/images` | listagem JSON: autor, data e URL da miniatura |
 | GET | `/images/{id}/thumbnail` | prévia |
@@ -122,20 +127,25 @@ Exemplos de request/response e códigos HTTP: [`docs/api.md`](docs/api.md).
 .
 ├── gallery_service/
 │   ├── main.py                   # Serviço de Galeria
+│   ├── db.py                     # persistência SQLite
 │   └── Dockerfile                # imagem da Galeria
 ├── processing_service/
 │   ├── main.py                   # Serviço de Processamento
 │   └── Dockerfile                # imagem do Processamento
 ├── common/logging_config.py      # logs JSON e middleware HTTP
+├── frontend/                     # interface web
 ├── docker-compose.yml            # serviços, rede, healthchecks e volume
 ├── .dockerignore                 # arquivos excluídos do contexto de build
 ├── scripts/
 │   ├── rodar.sh / rodar.ps1      # sobe os dois serviços juntos
 │   ├── smoke_test.sh             # fluxo completo com curl
-│   └── teste_concorrencia.py     # uploads simultâneos
+│   ├── teste_concorrencia.py     # uploads simultâneos
+│   └── teste_carga.py            # teste de carga da Galeria
 ├── tests/                        # pytest: test_galeria, test_processamento, test_regras
 ├── storage/                      # imagens enviadas (ignoradas pelo git)
-├── docs/api.md                   # contrato da API
+├── docs/
+│   ├── api.md                    # contrato da API
+│   └── relatorio_carga.md        # relatório do teste de carga
 ├── requirements.txt              # dependências com versões fixas
 └── README.md
 ```
@@ -207,6 +217,16 @@ Testes automatizados (não precisam dos serviços no ar):
 python -m pytest
 ```
 
+## Teste de carga
+
+Com os serviços rodando, execute o teste de carga na raiz do projeto:
+
+```bash
+python scripts/teste_carga.py --usuarios 20 --ciclos 5 --concorrencia 20
+```
+
+Resultado obtido no relatório: 400 requisições em 4.39 s, taxa média de 91.1 req/s e 0 erros. Upload teve média de 555.7 ms e p95 de 592.3 ms; listagem, prévia e download tiveram média de 8.3 ms, 19.3 ms e 20.2 ms, respectivamente. Consulte [`docs/relatorio_carga.md`](docs/relatorio_carga.md) para a tabela completa.
+
 ### 4. Rodar com Docker
 
 Requer Docker Desktop ou Docker Engine com suporte a contêineres Linux e Docker Compose v2. Na raiz do projeto:
@@ -217,7 +237,11 @@ docker compose up --build
 
 O Compose constrói e inicia os dois serviços. Os comandos do Uvicorn usam `--host 0.0.0.0` para aceitar conexões encaminhadas pelas portas do contêiner. A Galeria fica disponível em http://localhost:8001/docs e o Processamento em http://localhost:8002. Dentro da rede do Compose, a Galeria chama o Processamento pelo nome do serviço (`processing:8002`); `localhost` dentro de um contêiner apontaria para o próprio contêiner. O Compose aguarda o healthcheck do Processamento antes de iniciar a Galeria.
 
-O volume `./storage:/app/storage` mantém os arquivos enviados na pasta `storage/` do projeto. Usuários, tokens, metadados e histórico continuam em memória e são perdidos ao recriar os contêineres; por isso, arquivos que permanecerem em `storage/` podem não aparecer na listagem após reiniciar. Para encerrar, use `Ctrl+C`; para remover os contêineres e a rede, execute `docker compose down`.
+O volume `./storage:/app/storage` mantém os arquivos enviados na pasta `storage/` do projeto. O banco galeria.db fica no mesmo volume e os dados sobrevivem a docker compose restart e docker compose down. Para encerrar, use `Ctrl+C`; para remover os contêineres e a rede, execute `docker compose down`.
+
+### Abrir a interface gráfica
+
+Com os serviços no ar (script ou Docker), abra **http://localhost:8001/app** no navegador. Cadastre-se, entre, envie imagens e use a galeria, a prévia, o download e a aba Histórico. A galeria se atualiza sozinha a cada 5 segundos. Erros (tipo inválido, arquivo grande, falha de miniatura, sem conexão) aparecem na tela.
 
 ## Exemplos com curl
 

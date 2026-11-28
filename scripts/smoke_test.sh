@@ -52,4 +52,6 @@ curl -s "$GALERIA/history" -H "$AUTH" | json '' | grep -q "$ID" && ok "históric
 
 confere "listagem sem token" "$(curl -s -o /dev/null -w '%{http_code}' "$GALERIA/images")" 401
 
+confere "interface /app" "$(curl -s -o /dev/null -w '%{http_code}' -L "$GALERIA/app")" 200
+
 echo "Smoke test concluído com sucesso."

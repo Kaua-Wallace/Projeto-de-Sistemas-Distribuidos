@@ -232,7 +232,7 @@ def test_nome_malicioso_nao_escapa_do_storage(tmp_path):
     assert not (tmp_path.parent.parent / "fuga.png").exists()
     # tudo foi gravado em storage/<originals|thumbnails>/ana/<uuid>.<ext>
     for arquivo in tmp_path.rglob("*"):
-        if arquivo.is_file():
+        if arquivo.is_file() and not arquivo.name.startswith("galeria.db"):
             assert arquivo.parent.parent.name in ("originals", "thumbnails")
             assert arquivo.parent.name == "ana"
     down = gal.get(f"/images/{r.json()['id']}/download", headers=h)

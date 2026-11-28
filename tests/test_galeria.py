@@ -18,6 +18,7 @@ from processing_service.main import app as app_proc
 @pytest.fixture
 def gal(monkeypatch):
     # Limpa os estados antes de cada teste
+    (galeria.STORAGE / "galeria.db").unlink(missing_ok=True)
     galeria.usuarios.clear()
     galeria.tokens.clear()
     galeria.imagens.clear()
@@ -334,3 +335,29 @@ def test_upload_validacoes(gal, monkeypatch):
         headers=h,
         files=arq
     ).status_code == 413
+
+def test_dados_sobrevivem_ao_reinicio(gal):
+    headers = logar(gal)
+    r = gal.post("/images", headers=headers,
+                 files={"file": ("foto.png", png(), "image/png")})
+    assert r.status_code == 201
+    iid = r.json()["id"]
+
+    # Reinício simulado: memória zerada, banco preservado
+    galeria.usuarios.clear(); galeria.tokens.clear()
+    galeria.imagens.clear(); galeria.historico.clear()
+    with TestClient(galeria.app) as novo:
+        assert [i["id"] for i in novo.get("/images", headers=headers).json()] == [iid]
+        assert novo.get("/history", headers=headers).json()[0]["image_id"] == iid
+        assert novo.post("/auth/login", json={"username": "ana", "password": "segredo"}).status_code == 200
+
+def test_logout_invalida_token(gal):
+    headers = logar(gal)
+    assert gal.post("/auth/logout", headers=headers).status_code == 204
+    assert gal.get("/images", headers=headers).status_code == 401
+
+def test_token_expirado_e_rejeitado(gal):
+    headers = logar(gal)
+    for t in galeria.tokens_expira:
+        galeria.tokens_expira[t] = 0
+    assert gal.get("/images", headers=headers).status_code == 401
