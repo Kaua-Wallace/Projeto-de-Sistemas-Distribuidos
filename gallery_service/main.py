@@ -383,7 +383,18 @@ def download(img_id: str, _: str = Depends(usuario_logado)):
 
 @app.get("/history")
 def meu_historico(usuario: str = Depends(usuario_logado)):
-    return [h for h in historico if h["usuario"] == usuario]
+    envios = sorted(
+        (h for h in historico if h["usuario"] == usuario),
+        key=lambda envio: envio["data"],
+        reverse=True,
+    )
+    return [
+        {
+            **envio,
+            "url_miniatura": f"/images/{envio['image_id']}/thumbnail",
+        }
+        for envio in envios
+    ]
 
 
 # Interface web (HTML/CSS/JS) servida na mesma origem da API: dispensa CORS.
