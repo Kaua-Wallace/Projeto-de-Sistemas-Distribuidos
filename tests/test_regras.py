@@ -162,7 +162,9 @@ def test_listagem_tem_so_os_campos_publicos():
     inserir_imagem("ana")
     lista = gal.get("/images", headers=h).json()
     assert len(lista) == 1
-    assert set(lista[0]) == {"id", "autor", "data", "url_miniatura"}
+    assert set(lista[0]) == {
+        "id", "autor", "data", "nome", "tamanho", "url_miniatura"
+    }
 
 
 def test_listagem_mostra_imagens_de_todos_os_usuarios():

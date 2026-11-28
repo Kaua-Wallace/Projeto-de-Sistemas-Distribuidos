@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Literal
 
 import httpx
-from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -328,6 +328,8 @@ def persistir_arquivos(
 def listar(
     autor: str | None = None,
     ordem: Literal["data_desc", "data_asc"] = "data_desc",
+    limit: int = Query(default=100, ge=1),
+    offset: int = Query(default=0, ge=0),
     _: str = Depends(usuario_logado),
 ):
     selecionadas = (
@@ -339,10 +341,17 @@ def listar(
         key=lambda imagem: imagem["data"],
         reverse=ordem == "data_desc",
     )
+    pagina = ordenadas[offset:offset + limit]
     return [
-        {"id": i["id"], "autor": i["autor"], "data": i["data"],
-         "url_miniatura": i["url_miniatura"]}
-        for i in ordenadas
+        {
+            "id": i["id"],
+            "autor": i["autor"],
+            "data": i["data"],
+            "nome": i["nome"],
+            "tamanho": i["tamanho"],
+            "url_miniatura": i["url_miniatura"],
+        }
+        for i in pagina
     ]
 
 
