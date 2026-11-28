@@ -14,6 +14,7 @@ import {
 import { mostrarAviso } from "./toast.js";
 import { montarUpload } from "./upload.js";
 import { atualizarGaleria, iniciarGaleria, pararGaleria } from "./galeria.js";
+import { atualizarHistorico, iniciarHistorico, pararHistorico } from "./historico.js";
 
 const carregandoInicial = document.getElementById("carregando-inicial");
 const telaAuth = document.getElementById("tela-auth");
@@ -157,9 +158,36 @@ function abrirApp() {
 function iniciarApp() {
   conteudo.innerHTML = `
     <div id="area-upload"></div>
-    <div id="area-galeria"></div>`;
+    <div class="abas-app" role="tablist" aria-label="Imagens">
+      <button type="button" role="tab" id="aba-galeria" data-painel="galeria"
+              aria-controls="painel-galeria" aria-selected="true">Galeria</button>
+      <button type="button" role="tab" id="aba-historico" data-painel="historico"
+              aria-controls="painel-historico" aria-selected="false">Histórico</button>
+    </div>
+    <section id="painel-galeria" class="painel-app" role="tabpanel" aria-labelledby="aba-galeria">
+      <div id="area-galeria"></div>
+    </section>
+    <section id="painel-historico" class="painel-app" role="tabpanel"
+             aria-labelledby="aba-historico" hidden>
+      <div id="area-historico"></div>
+    </section>`;
   montarUpload(document.getElementById("area-upload"), { enviar: enviarArquivos });
   iniciarGaleria(document.getElementById("area-galeria"));
+  iniciarHistorico(document.getElementById("area-historico"));
+  conteudo.querySelectorAll("[data-painel]").forEach((botao) => {
+    botao.addEventListener("click", () => trocarPainel(botao.dataset.painel));
+  });
+}
+
+function trocarPainel(nome) {
+  conteudo.querySelectorAll("[data-painel]").forEach((botao) => {
+    botao.setAttribute("aria-selected", String(botao.dataset.painel === nome));
+  });
+  conteudo.querySelectorAll(".painel-app").forEach((painel) => {
+    painel.hidden = painel.id !== `painel-${nome}`;
+  });
+  if (nome === "galeria") atualizarGaleria();
+  else atualizarHistorico();
 }
 
 // Envia os arquivos em paralelo (um POST /images por arquivo) e avisa o
@@ -184,6 +212,7 @@ async function enviarArquivos(arquivos) {
 // Desmonta o que iniciarApp() montou (timers, object URLs...)
 function encerrarApp() {
   pararGaleria();
+  pararHistorico();
   conteudo.replaceChildren();
 }
 

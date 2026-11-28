@@ -150,8 +150,14 @@ export function validarSessao() {
 
 // Imagens
 
-export function listarImagens() {
-  return requisicao("/images");
+export function listarImagens({ autor = "", ordem = "data_desc" } = {}) {
+  const parametros = new URLSearchParams({ ordem, limit: "1000", offset: "0" });
+  if (autor.trim()) parametros.set("autor", autor.trim());
+  return requisicao(`/images?${parametros}`);
+}
+
+export function listarHistorico() {
+  return requisicao("/history");
 }
 
 export function enviarImagem(arquivo) {

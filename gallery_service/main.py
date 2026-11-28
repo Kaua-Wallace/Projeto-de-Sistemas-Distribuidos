@@ -9,9 +9,10 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
+from typing import Literal
 
 import httpx
-from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -324,11 +325,33 @@ def persistir_arquivos(
 
 
 @app.get("/images")
-def listar(_: str = Depends(usuario_logado)):
+def listar(
+    autor: str | None = None,
+    ordem: Literal["data_desc", "data_asc"] = "data_desc",
+    limit: int = Query(default=100, ge=1),
+    offset: int = Query(default=0, ge=0),
+    _: str = Depends(usuario_logado),
+):
+    selecionadas = (
+        imagem for imagem in imagens.values()
+        if autor is None or imagem["autor"] == autor
+    )
+    ordenadas = sorted(
+        selecionadas,
+        key=lambda imagem: imagem["data"],
+        reverse=ordem == "data_desc",
+    )
+    pagina = ordenadas[offset:offset + limit]
     return [
-        {"id": i["id"], "autor": i["autor"], "data": i["data"],
-         "url_miniatura": i["url_miniatura"]}
-        for i in imagens.values()
+        {
+            "id": i["id"],
+            "autor": i["autor"],
+            "data": i["data"],
+            "nome": i["nome"],
+            "tamanho": i["tamanho"],
+            "url_miniatura": i["url_miniatura"],
+        }
+        for i in pagina
     ]
 
 
@@ -360,7 +383,18 @@ def download(img_id: str, _: str = Depends(usuario_logado)):
 
 @app.get("/history")
 def meu_historico(usuario: str = Depends(usuario_logado)):
-    return [h for h in historico if h["usuario"] == usuario]
+    envios = sorted(
+        (h for h in historico if h["usuario"] == usuario),
+        key=lambda envio: envio["data"],
+        reverse=True,
+    )
+    return [
+        {
+            **envio,
+            "url_miniatura": f"/images/{envio['image_id']}/thumbnail",
+        }
+        for envio in envios
+    ]
 
 
 # Interface web (HTML/CSS/JS) servida na mesma origem da API: dispensa CORS.
